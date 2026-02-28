@@ -45,3 +45,4 @@ build/
 ### Others ###
 *.log
 bin/
+/src/generated/
