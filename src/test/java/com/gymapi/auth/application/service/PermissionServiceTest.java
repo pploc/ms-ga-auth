@@ -40,8 +40,7 @@ class PermissionServiceTest {
                 "booking",
                 "read",
                 "Read bookings",
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
     }
 
     @Test
@@ -107,5 +106,48 @@ class PermissionServiceTest {
         permissionService.deletePermission(permissionId);
 
         verify(permissionRepository).deleteById(permissionId);
+    }
+
+    @Test
+    void deletePermission_NotFound_ThrowsException() {
+        when(permissionRepository.findById(permissionId)).thenReturn(Optional.empty());
+
+        assertThrows(PermissionNotFoundException.class,
+                () -> permissionService.deletePermission(permissionId));
+    }
+
+    @Test
+    void updatePermission_NotFound_ThrowsException() {
+        when(permissionRepository.findById(permissionId)).thenReturn(Optional.empty());
+
+        assertThrows(PermissionNotFoundException.class,
+                () -> permissionService.updatePermission(permissionId, "res", "act", "desc"));
+    }
+
+    @Test
+    void updatePermission_Duplicate_ThrowsException() {
+        when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(testPermission));
+        when(permissionRepository.existsByResourceAndAction("booking", "create")).thenReturn(true);
+
+        assertThrows(DuplicatePermissionException.class,
+                () -> permissionService.updatePermission(permissionId, "booking", "create", "desc"));
+    }
+
+    @Test
+    void getPermissionByResourceAndAction_Success() {
+        when(permissionRepository.findByResourceAndAction("booking", "read")).thenReturn(Optional.of(testPermission));
+
+        Permission result = permissionService.getPermissionByResourceAndAction("booking", "read");
+
+        assertNotNull(result);
+        assertEquals(permissionId, result.id());
+    }
+
+    @Test
+    void getPermissionByResourceAndAction_NotFound_ThrowsException() {
+        when(permissionRepository.findByResourceAndAction("booking", "none")).thenReturn(Optional.empty());
+
+        assertThrows(PermissionNotFoundException.class,
+                () -> permissionService.getPermissionByResourceAndAction("booking", "none"));
     }
 }
