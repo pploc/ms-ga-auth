@@ -187,4 +187,63 @@ class RoleServiceTest {
         assertThrows(SystemRoleDeletionException.class,
                 () -> roleService.setRolePermissions(roleId, java.util.Set.of()));
     }
+
+    @Test
+    void getRoleByName_Success() {
+        when(roleRepository.findByName("TEST_ROLE")).thenReturn(Optional.of(testRole));
+
+        Role result = roleService.getRoleByName("TEST_ROLE");
+
+        assertNotNull(result);
+        assertEquals("TEST_ROLE", result.name());
+    }
+
+    @Test
+    void getRoleByName_NotFound_ThrowsException() {
+        when(roleRepository.findByName("NONE")).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleService.getRoleByName("NONE"));
+    }
+
+    @Test
+    void deleteRole_NotFound_ThrowsException() {
+        when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleService.deleteRole(roleId));
+    }
+
+    @Test
+    void updateRole_NotFound_ThrowsException() {
+        when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleService.updateRole(roleId, "NAME", "desc"));
+    }
+
+    @Test
+    void updateRole_Duplicate_ThrowsException() {
+        when(roleRepository.findById(roleId)).thenReturn(Optional.of(testRole));
+        when(roleRepository.existsByName("OTHER_ROLE")).thenReturn(true);
+
+        assertThrows(DuplicateRoleException.class,
+                () -> roleService.updateRole(roleId, "OTHER_ROLE", "desc"));
+    }
+
+    @Test
+    void getRolePermissions_NotFound_ThrowsException() {
+        when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleService.getRolePermissions(roleId));
+    }
+
+    @Test
+    void setRolePermissions_NotFound_ThrowsException() {
+        when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
+
+        assertThrows(RoleNotFoundException.class,
+                () -> roleService.setRolePermissions(roleId, java.util.Set.of()));
+    }
 }
