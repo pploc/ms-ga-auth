@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '3.2.3'
     id 'io.spring.dependency-management' version '1.1.4'
     id 'org.openapi.generator' version '7.10.0' apply false
+    id 'jacoco'
 }
 
 group = 'com.gymapi'
@@ -99,4 +100,30 @@ tasks.named('test') {
         "--add-opens", "java.base/java.time=ALL-UNNAMED"
     ]
     systemProperty("net.bytebuddy.experimental", "true")
+    finalizedBy jacocoTestReport
+    testLogging {
+        events "failed", "standardOut", "standardError"
+        showExceptions true
+        exceptionFormat "full"
+    }
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                'com/gymapi/auth/adapter/in/web/dto/generated/**',
+                'com/gymapi/auth/adapter/in/web/dto/request/**',
+                'com/gymapi/auth/adapter/in/web/dto/response/**',
+                'com/gymapi/auth/adapter/out/persistence/entity/**',
+                'com/gymapi/auth/config/**',
+                'com/gymapi/auth/GaAuthApplication.class'
+            ])
+        }))
+    }
 }
