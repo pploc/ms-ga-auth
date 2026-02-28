@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.2.3'
     id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.openapi.generator' version '7.10.0' apply false
 }
 
 group = 'com.gymapi'
@@ -9,6 +10,19 @@ version = '0.0.1-SNAPSHOT'
 
 java {
     sourceCompatibility = '21'
+}
+
+// Apply the OpenAPI generation script (defines `openApiGenerate` and helper tasks)
+apply plugin: 'org.openapi.generator'
+apply from: 'openapi-generate.gradle'
+
+// Ensure `openApiGenerate` runs as part of `build` when the task is present
+tasks.whenTaskAdded { task ->
+    if (task.name == 'openApiGenerate') {
+        tasks.named('build') {
+            dependsOn task
+        }
+    }
 }
 
 sourceSets {

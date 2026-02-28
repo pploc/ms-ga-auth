@@ -1,11 +1,4 @@
-// OpenAPI DTO Generator - Run with: ./gradlew -b openapi-generate.gradle openApiGenerate
-
-plugins {
-    id 'java'
-    id 'org.openapi.generator' version '7.10.0' apply false
-}
-
-apply plugin: 'org.openapi.generator'
+// OpenAPI DTO Generator - configuration applied from `build.gradle`
 
 group = 'com.gymapi'
 version = '0.0.1-SNAPSHOT'
