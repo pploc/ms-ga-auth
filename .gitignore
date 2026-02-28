@@ -44,3 +44,4 @@ build/
 
 ### Others ###
 *.log
+bin/
