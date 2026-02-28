@@ -1,0 +1,150 @@
+package com.gymapi.auth.application.service;
+
+import com.gymapi.auth.application.port.out.RolePermissionRepository;
+import com.gymapi.auth.application.port.out.UserRoleRepository;
+import com.gymapi.auth.domain.exception.UserRoleNotFoundException;
+import com.gymapi.auth.domain.model.Permission;
+import com.gymapi.auth.domain.model.Role;
+import com.gymapi.auth.domain.model.RolesWithPermissions;
+import com.gymapi.auth.domain.model.UserRole;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class UserRoleServiceTest {
+
+    @Mock
+    private UserRoleRepository userRoleRepository;
+
+    @Mock
+    private RoleService roleService;
+
+    @Mock
+    private RolePermissionRepository rolePermissionRepository;
+
+    @InjectMocks
+    private UserRoleService userRoleService;
+
+    private UUID userId;
+    private UUID roleId;
+    private UserRole testUserRole;
+    private Role testRole;
+
+    @BeforeEach
+    void setUp() {
+        userId = UUID.randomUUID();
+        roleId = UUID.randomUUID();
+        
+        testRole = new Role(
+                roleId,
+                "MEMBER",
+                "Member role",
+                true,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        
+        testUserRole = new UserRole(
+                UUID.randomUUID(),
+                userId,
+                roleId,
+                UUID.randomUUID(),
+                OffsetDateTime.now()
+        );
+    }
+
+    @Test
+    void assignRole_Success() {
+        when(roleService.getRoleById(roleId)).thenReturn(testRole);
+        when(userRoleRepository.existsByUserIdAndRoleId(userId, roleId)).thenReturn(false);
+        when(userRoleRepository.save(any(UserRole.class))).thenReturn(testUserRole);
+
+        UserRole result = userRoleService.assignRole(userId, roleId, UUID.randomUUID());
+
+        assertNotNull(result);
+        assertEquals(userId, result.userId());
+        assertEquals(roleId, result.roleId());
+    }
+
+    @Test
+    void assignRole_AlreadyAssigned_ThrowsException() {
+        when(roleService.getRoleById(roleId)).thenReturn(testRole);
+        when(userRoleRepository.existsByUserIdAndRoleId(userId, roleId)).thenReturn(true);
+
+        assertThrows(IllegalStateException.class,
+                () -> userRoleService.assignRole(userId, roleId, UUID.randomUUID()));
+    }
+
+    @Test
+    void revokeRole_Success() {
+        when(userRoleRepository.findByUserIdAndRoleId(userId, roleId)).thenReturn(Optional.of(testUserRole));
+
+        userRoleService.revokeRole(userId, roleId);
+
+        verify(userRoleRepository).deleteByUserIdAndRoleId(userId, roleId);
+    }
+
+    @Test
+    void revokeRole_NotAssigned_ThrowsException() {
+        when(userRoleRepository.findByUserIdAndRoleId(userId, roleId)).thenReturn(Optional.empty());
+
+        assertThrows(UserRoleNotFoundException.class,
+                () -> userRoleService.revokeRole(userId, roleId));
+    }
+
+    @Test
+    void getUserRoles_Success() {
+        when(userRoleRepository.findByUserId(userId)).thenReturn(List.of(testUserRole));
+
+        List<UserRole> result = userRoleService.getUserRoles(userId);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void hasRole_True() {
+        when(userRoleRepository.existsByUserIdAndRoleId(userId, roleId)).thenReturn(true);
+
+        boolean result = userRoleService.hasRole(userId, roleId);
+
+        assertTrue(result);
+    }
+
+    @Test
+    void hasRole_False() {
+        when(userRoleRepository.existsByUserIdAndRoleId(userId, roleId)).thenReturn(false);
+
+        boolean result = userRoleService.hasRole(userId, roleId);
+
+        assertFalse(result);
+    }
+
+    @Test
+    void getUserRolesWithPermissions_Success() {
+        Permission perm = new Permission(UUID.randomUUID(), "booking", "read", "Read", OffsetDateTime.now());
+        
+        when(userRoleRepository.findByUserId(userId)).thenReturn(List.of(testUserRole));
+        when(roleService.getRoleById(roleId)).thenReturn(testRole);
+        when(rolePermissionRepository.findPermissionsByRoleId(roleId)).thenReturn(List.of(perm));
+
+        RolesWithPermissions result = userRoleService.getUserRolesWithPermissions(userId);
+
+        assertNotNull(result);
+        assertEquals(userId, result.userId());
+        assertTrue(result.roles().contains("MEMBER"));
+        assertTrue(result.permissions().contains("booking:read"));
+    }
+}
