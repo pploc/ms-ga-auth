@@ -1,0 +1,17 @@
+README.md
+pom.xml
+src/main/java/com/gymapi/auth/adapter/in/web/api/generated/ApiUtil.java
+src/main/java/com/gymapi/auth/adapter/in/web/api/generated/AuthApi.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/AssignRoleRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/AssignRoleResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/CreatePermissionRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/CreateRoleRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/MessageResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/PermissionResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/RoleResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/RolesWithPermissionsResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/SetPermissionsResponse.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/SetRolePermissionsRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/UpdatePermissionRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/UpdateRoleRequest.java
+src/main/java/com/gymapi/auth/adapter/in/web/dto/generated/UserRoleResponse.java

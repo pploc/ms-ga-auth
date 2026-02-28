@@ -1,78 +1,45 @@
-// OpenAPI DTO Generator Gradle Task
-// Run with: ./gradlew -b openapi-generate.gradle generateOpenApiDto
+// OpenAPI DTO Generator - Run with: ./gradlew -b openapi-generate.gradle generateOpenApiDto
 
 plugins {
     id 'org.openapi.generator' version '7.3.0' apply false
 }
 
-allprojects {
-    group = 'com.gymapi'
-    version = '0.0.1-SNAPSHOT'
+apply plugin: 'org.openapi.generator'
 
-    repositories {
-        mavenCentral()
-    }
+group = 'com.gymapi'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
 }
 
-subprojects {
-    apply plugin: 'java'
+// Configure OpenAPI Generate task
+openApiGenerate {
+    generatorName = "spring"
+    inputSpec = "$projectDir/src/main/resources/openapi/auth-api.yaml"
+    outputDir = "$projectDir/src/generated"
+    modelPackage = "com.gymapi.auth.adapter.in.web.dto.generated"
+    apiPackage = "com.gymapi.auth.adapter.in.web.api.generated"
+    invokerPackage = "com.gymapi.auth.adapter.in.web.invoker.generated"
     
-    java {
-        sourceCompatibility = '21'
-    }
+    configOptions = [
+        interfaceOnly: "true",
+        useOptional: "true",
+        implicitHeaders: "true",
+        swaggerAnnotations: "false",
+        beanAnnotations: "false",
+        useJakarta: "true",
+        useLombokAnnotations: "true",
+        disableValidationJsonAnnotations: "true"
+    ]
+    
+    globalProperties = [
+        modelTests: "false",
+        apiTests: "false"
+    ]
+}
 
-    task downloadOpenApiSpec {
-        doLast {
-            def outputDir = file("${rootProject.buildDir}/openapi")
-            outputDir.mkdirs()
-            def outputFile = new File(outputDir, "api-docs.json")
-            
-            try {
-                def url = new URL("http://localhost:8082/v3/api-docs")
-                def connection = url.openConnection()
-                connection.setConnectTimeout(5000)
-                connection.setReadTimeout(5000)
-                
-                if (connection.responseCode == 200) {
-                    outputFile.text = connection.inputStream.text
-                    println "✓ OpenAPI spec downloaded to ${outputFile.absolutePath}"
-                } else {
-                    println "✗ Could not download OpenAPI spec (HTTP ${connection.responseCode})"
-                }
-            } catch (Exception e) {
-                println "✗ Error: ${e.message}"
-                println "Make sure the application is running on port 8082"
-            }
-        }
-    }
-
-    openApiGenerate {
-        def specDir = "${rootProject.buildDir}/openapi"
-        
-        generatorName = "spring"
-        inputSpec = "$specDir/api-docs.json"
-        outputDir = "$rootDir/src/generated"
-        modelPackage = "com.gymapi.auth.adapter.in.web.dto.generated"
-        apiPackage = "com.gymapi.auth.adapter.in.web.api.generated"
-        
-        configOptions = [
-            interfaceOnly: "true",
-            useOptional: "true",
-            implicitHeaders: "true"
-        ]
-        
-        globalProperties = [
-            modelTests: "false",
-            apiTests: "false"
-        ]
-    }
-
-    task generateOpenApiDto {
-        dependsOn downloadOpenApiSpec
-        dependsOn openApiGenerate
-        
-        doLast {
-            println "✓ OpenAPI DTOs generated in: $rootDir/src/generated"
-        }
-    }
+tasks.named('openApiGenerate') {
+    description = "Generate DTOs from OpenAPI YAML spec"
+    group = "openapi"
 }
