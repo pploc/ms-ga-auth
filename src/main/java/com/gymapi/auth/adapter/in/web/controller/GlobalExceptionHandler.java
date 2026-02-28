@@ -1,9 +1,6 @@
 package com.gymapi.auth.adapter.in.web.controller;
 
 import com.gymapi.auth.domain.exception.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -66,19 +63,17 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String message) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .message(message)
-                .timestamp(OffsetDateTime.now())
-                .build();
+        ErrorResponse error = new ErrorResponse();
+        error.setStatus(status.value());
+        error.setError(status.getReasonPhrase());
+        error.setMessage(message);
+        error.setTimestamp(OffsetDateTime.now());
         return ResponseEntity.status(status).body(error);
     }
 
-    @Data
-    @Builder
+    @lombok.Getter
+    @lombok.Setter
     @NoArgsConstructor
-    @AllArgsConstructor
     public static class ErrorResponse {
         private int status;
         private String error;
