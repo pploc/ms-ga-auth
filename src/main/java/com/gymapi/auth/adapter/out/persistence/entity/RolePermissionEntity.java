@@ -10,26 +10,24 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "user_roles")
+@Table(name = "role_permissions")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserRoleEntity {
+public class RolePermissionEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "role_id", nullable = false)
     private RoleEntity role;
 
-    @Column(name = "assigned_by")
-    private UUID assignedBy;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "permission_id", nullable = false)
+    private PermissionEntity permission;
 
     @Column(name = "assigned_at", nullable = false)
     private OffsetDateTime assignedAt;

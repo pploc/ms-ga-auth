@@ -1,20 +1,19 @@
 package com.gymapi.auth.application.port.out;
 
-import com.gymapi.auth.domain.model.Role;
-import com.gymapi.auth.domain.model.RolesWithPermissions;
 import com.gymapi.auth.domain.model.UserRole;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface UserRoleRepository {
     UserRole save(UserRole userRole);
-
-    void deleteByUserIdAndRoleId(UUID userId, UUID roleId);
-
-    List<Role> findRolesByUserId(UUID userId);
-
+    Optional<UserRole> findById(UUID id);
+    List<UserRole> findByUserId(UUID userId);
+    List<UserRole> findByRoleId(UUID roleId);
+    Optional<UserRole> findByUserIdAndRoleId(UUID userId, UUID roleId);
     boolean existsByUserIdAndRoleId(UUID userId, UUID roleId);
-
-    RolesWithPermissions findRolesWithPermissionsByUserId(UUID userId);
+    void deleteByUserIdAndRoleId(UUID userId, UUID roleId);
+    void deleteByUserId(UUID userId);
+    void deleteByRoleId(UUID roleId);
 }

@@ -4,19 +4,13 @@ import com.gymapi.auth.domain.model.Permission;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 public interface PermissionRepository {
     Permission save(Permission permission);
-
     Optional<Permission> findById(UUID id);
-
+    Optional<Permission> findByResourceAndAction(String resource, String action);
     List<Permission> findAll();
-
-    List<Permission> findAllByIds(Set<UUID> ids);
-
-    void deleteById(UUID id);
-
     boolean existsByResourceAndAction(String resource, String action);
+    void deleteById(UUID id);
 }

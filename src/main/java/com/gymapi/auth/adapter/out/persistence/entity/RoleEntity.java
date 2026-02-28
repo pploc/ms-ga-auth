@@ -1,36 +1,22 @@
 package com.gymapi.auth.adapter.out.persistence.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Getter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "roles")
-@Getter
-@Setter
+@Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class RoleEntity {
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -42,18 +28,11 @@ public class RoleEntity {
     private String description;
 
     @Column(name = "is_system", nullable = false)
-    private boolean system;
+    private boolean isSystem;
 
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(name = "role_permissions", joinColumns = @JoinColumn(name = "role_id"), inverseJoinColumns = @JoinColumn(name = "permission_id"))
-    @Builder.Default
-    private List<PermissionEntity> permissions = new ArrayList<>();
+    @Column(name = "created_at", nullable = false)
+    private OffsetDateTime createdAt;
 
-    @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private OffsetDateTime updatedAt;
 }

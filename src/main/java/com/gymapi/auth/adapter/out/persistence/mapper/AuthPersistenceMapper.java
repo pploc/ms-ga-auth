@@ -1,28 +1,34 @@
 package com.gymapi.auth.adapter.out.persistence.mapper;
 
-import com.gymapi.auth.adapter.out.persistence.entity.PermissionEntity;
-import com.gymapi.auth.adapter.out.persistence.entity.RoleEntity;
-import com.gymapi.auth.adapter.out.persistence.entity.UserRoleEntity;
-import com.gymapi.auth.domain.model.Permission;
-import com.gymapi.auth.domain.model.Role;
-import com.gymapi.auth.domain.model.UserRole;
+import com.gymapi.auth.adapter.out.persistence.entity.*;
+import com.gymapi.auth.domain.model.*;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.MappingConstants;
 
-@Mapper(componentModel = "spring")
+import java.util.List;
+
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
 public interface AuthPersistenceMapper {
 
-    Role mapToDomain(RoleEntity entity);
+    Role toRole(RoleEntity entity);
 
-    RoleEntity mapToEntity(Role domain);
+    @Mapping(target = "role", ignore = true)
+    @Mapping(target = "permission", ignore = true)
+    RoleEntity toRoleEntity(Role role);
 
-    Permission mapToDomain(PermissionEntity entity);
+    Permission toPermission(PermissionEntity entity);
 
-    PermissionEntity mapToEntity(Permission domain);
+    @Mapping(target = "role", ignore = true)
+    @Mapping(target = "permission", ignore = true)
+    PermissionEntity toPermissionEntity(Permission permission);
 
-    @Mapping(source = "role.id", target = "roleId")
-    UserRole mapToDomain(UserRoleEntity entity);
+    UserRole toUserRole(UserRoleEntity entity);
 
-    @Mapping(source = "roleId", target = "role.id")
-    UserRoleEntity mapToEntity(UserRole domain);
+    @Mapping(target = "role", ignore = true)
+    UserRoleEntity toUserRoleEntity(UserRole userRole);
+
+    List<Role> toRoleList(List<RoleEntity> entities);
+    List<Permission> toPermissionList(List<PermissionEntity> entities);
+    List<UserRole> toUserRoleList(List<UserRoleEntity> entities);
 }
