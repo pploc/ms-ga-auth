@@ -1,19 +1,15 @@
 package com.gymapi.auth.application.service;
 
-import com.gymapi.auth.application.port.in.AssignRoleCommand;
 import com.gymapi.auth.application.port.in.UserRoleUseCase;
-import com.gymapi.auth.application.port.out.EventPublisher;
-import com.gymapi.auth.application.port.out.RoleRepository;
 import com.gymapi.auth.application.port.out.UserRoleRepository;
-import com.gymapi.auth.domain.exception.ConflictException;
-import com.gymapi.auth.domain.exception.ResourceNotFoundException;
-import com.gymapi.auth.domain.model.Role;
-import com.gymapi.auth.domain.model.RolesWithPermissions;
+import com.gymapi.auth.domain.exception.RoleNotFoundException;
+import com.gymapi.auth.domain.exception.UserRoleNotFoundException;
 import com.gymapi.auth.domain.model.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,52 +17,53 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserRoleService implements UserRoleUseCase {
 
+    private static final String USER_ROLE_NOT_FOUND = "User role not found";
+    private static final String ROLE_NOT_FOUND = "Role not found with id: %s";
+
     private final UserRoleRepository userRoleRepository;
-    private final RoleRepository roleRepository;
-    private final EventPublisher eventPublisher;
+    private final RoleService roleService;
 
     @Override
     @Transactional
-    public void assignRole(AssignRoleCommand command) {
-        Role role = roleRepository.findById(command.getRoleId())
-                .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+    public UserRole assignRole(UUID userId, UUID roleId, UUID assignedBy) {
+        roleService.getRoleById(roleId);
 
-        if (userRoleRepository.existsByUserIdAndRoleId(command.getUserId(), command.getRoleId())) {
-            throw new ConflictException("User already has this role");
+        if (userRoleRepository.existsByUserIdAndRoleId(userId, roleId)) {
+            throw new IllegalStateException("User already has this role");
         }
 
-        UserRole userRole = UserRole.builder()
-                .userId(command.getUserId())
-                .roleId(command.getRoleId())
-                .assignedBy(command.getAssignedBy())
-                .build();
+        UserRole userRole = new UserRole(
+                null,
+                userId,
+                roleId,
+                assignedBy,
+                OffsetDateTime.now()
+        );
 
-        userRoleRepository.save(userRole);
-        eventPublisher.publishRoleAssignedEvent(command.getUserId(), command.getRoleId(), role.getName(),
-                command.getAssignedBy());
+        return userRoleRepository.save(userRole);
     }
 
     @Override
     @Transactional
-    public void removeRole(UUID userId, UUID roleId) {
-        if (!userRoleRepository.existsByUserIdAndRoleId(userId, roleId)) {
-            throw new ResourceNotFoundException("User does not have this role");
-        }
-
-        Role role = roleRepository.findById(roleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+    public void revokeRole(UUID userId, UUID roleId) {
+        UserRole userRole = userRoleRepository.findByUserIdAndRoleId(userId, roleId)
+                .orElseThrow(() -> new UserRoleNotFoundException(USER_ROLE_NOT_FOUND));
 
         userRoleRepository.deleteByUserIdAndRoleId(userId, roleId);
-        eventPublisher.publishRoleRevokedEvent(userId, roleId, role.getName());
     }
 
     @Override
-    public List<Role> getUserRoles(UUID userId) {
-        return userRoleRepository.findRolesByUserId(userId);
+    public List<UserRole> getUserRoles(UUID userId) {
+        return userRoleRepository.findByUserId(userId);
     }
 
     @Override
-    public RolesWithPermissions getUserRolesWithPermissions(UUID userId) {
-        return userRoleRepository.findRolesWithPermissionsByUserId(userId);
+    public List<UserRole> getRoleUsers(UUID roleId) {
+        return userRoleRepository.findByRoleId(roleId);
+    }
+
+    @Override
+    public boolean hasRole(UUID userId, UUID roleId) {
+        return userRoleRepository.existsByUserIdAndRoleId(userId, roleId);
     }
 }

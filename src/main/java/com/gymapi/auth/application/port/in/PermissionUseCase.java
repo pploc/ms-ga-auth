@@ -6,11 +6,10 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PermissionUseCase {
-    Permission createPermission(CreatePermissionCommand command);
-
-    List<Permission> getAllPermissions();
-
-    Permission updatePermission(UUID id, UpdatePermissionCommand command);
-
+    Permission createPermission(String resource, String action, String description);
+    Permission updatePermission(UUID id, String resource, String action, String description);
     void deletePermission(UUID id);
+    Permission getPermissionById(UUID id);
+    Permission getPermissionByResourceAndAction(String resource, String action);
+    List<Permission> getAllPermissions();
 }
