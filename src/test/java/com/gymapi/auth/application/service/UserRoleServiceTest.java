@@ -150,4 +150,13 @@ class UserRoleServiceTest {
         assertTrue(result.roles().contains("MEMBER"));
         assertTrue(result.permissions().contains("booking:read"));
     }
+
+    @Test
+    void getRoleUsers_Success() {
+        when(userRoleRepository.findByRoleId(roleId)).thenReturn(List.of(testUserRole));
+
+        List<UserRole> result = userRoleService.getRoleUsers(roleId);
+
+        assertEquals(1, result.size());
+    }
 }
