@@ -161,9 +161,14 @@ task fixBuilderForListFields {
     }
 }
 
-// Run cleanup after generation
-tasks.named('openApiGenerate') {
-    finalizedBy cleanupGeneratedFiles
-    finalizedBy fixDuplicateConstructors
-    finalizedBy fixBuilderForListFields
+// Task dependencies
+cleanupGeneratedFiles.dependsOn 'openApiGenerate'
+fixDuplicateConstructors.dependsOn 'openApiGenerate'
+fixBuilderForListFields.dependsOn 'openApiGenerate'
+
+// Ensure compilation waits for all fixes
+tasks.named('compileJava') {
+    dependsOn cleanupGeneratedFiles
+    dependsOn fixDuplicateConstructors
+    dependsOn fixBuilderForListFields
 }
