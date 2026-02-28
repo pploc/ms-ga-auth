@@ -1,8 +1,8 @@
 package com.gymapi.auth.adapter.in.web.controller;
 
-import com.gymapi.auth.adapter.in.web.dto.request.AssignRoleRequest;
-import com.gymapi.auth.adapter.in.web.dto.response.RolesWithPermissionsResponse;
-import com.gymapi.auth.adapter.in.web.dto.response.UserRoleResponse;
+import com.gymapi.auth.adapter.in.web.dto.generated.AssignRoleRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.RolesWithPermissionsResponse;
+import com.gymapi.auth.adapter.in.web.dto.generated.UserRoleResponse;
 import com.gymapi.auth.adapter.in.web.mapper.AuthWebMapper;
 import com.gymapi.auth.application.port.in.UserRoleUseCase;
 import com.gymapi.auth.domain.model.RolesWithPermissions;
@@ -74,11 +74,11 @@ public class UserRoleController {
     @Operation(summary = "Get user's roles with permissions (internal use)")
     public ResponseEntity<RolesWithPermissionsResponse> getUserRolesWithPermissions(@PathVariable UUID userId) {
         RolesWithPermissions rolesWithPermissions = userRoleUseCase.getUserRolesWithPermissions(userId);
-        RolesWithPermissionsResponse response = RolesWithPermissionsResponse.builder()
-                .userId(rolesWithPermissions.userId())
-                .roles(rolesWithPermissions.roles())
-                .permissions(rolesWithPermissions.permissions())
-                .build();
+        RolesWithPermissionsResponse response = new RolesWithPermissionsResponse(
+                rolesWithPermissions.userId(),
+                rolesWithPermissions.roles(),
+                rolesWithPermissions.permissions()
+        );
         return ResponseEntity.ok(response);
     }
 }

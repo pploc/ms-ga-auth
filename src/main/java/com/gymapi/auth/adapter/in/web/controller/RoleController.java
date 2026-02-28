@@ -1,10 +1,10 @@
 package com.gymapi.auth.adapter.in.web.controller;
 
-import com.gymapi.auth.adapter.in.web.dto.request.CreateRoleRequest;
-import com.gymapi.auth.adapter.in.web.dto.request.SetRolePermissionsRequest;
-import com.gymapi.auth.adapter.in.web.dto.request.UpdateRoleRequest;
-import com.gymapi.auth.adapter.in.web.dto.response.PermissionResponse;
-import com.gymapi.auth.adapter.in.web.dto.response.RoleResponse;
+import com.gymapi.auth.adapter.in.web.dto.generated.CreateRoleRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.SetRolePermissionsRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.UpdateRoleRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.PermissionResponse;
+import com.gymapi.auth.adapter.in.web.dto.generated.RoleResponse;
 import com.gymapi.auth.adapter.in.web.mapper.AuthWebMapper;
 import com.gymapi.auth.application.port.in.RoleUseCase;
 import com.gymapi.auth.domain.model.Permission;
@@ -17,8 +17,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -36,7 +38,7 @@ public class RoleController {
         Role role = roleUseCase.createRole(
                 request.getName(),
                 request.getDescription(),
-                request.isSystem()
+                request.getSystem()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toRoleResponse(role));
     }
@@ -90,7 +92,7 @@ public class RoleController {
     public ResponseEntity<Map<String, Object>> setRolePermissions(
             @PathVariable UUID id,
             @Valid @RequestBody SetRolePermissionsRequest request) {
-        roleUseCase.setRolePermissions(id, request.getPermissionIds());
+        roleUseCase.setRolePermissions(id, new HashSet<>(request.getPermissionIds()));
         List<Permission> permissions = roleUseCase.getRolePermissions(id);
         return ResponseEntity.ok(Map.of(
                 "message", "Permissions updated.",

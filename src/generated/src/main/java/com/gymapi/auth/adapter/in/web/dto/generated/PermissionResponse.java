@@ -13,171 +13,27 @@ import javax.validation.Valid;
 import javax.validation.constraints.*;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-
 import java.util.*;
 import javax.annotation.Generated;
 
 /**
  * PermissionResponse
  */
+@lombok.Data @lombok.Builder @lombok.NoArgsConstructor @lombok.AllArgsConstructor
 
-@Generated(value = "org.openapitools.codegen.languages.SpringCodegen", date = "2026-02-28T22:30:26.877429200+07:00[Asia/Bangkok]")
+@Generated(value = "org.openapitools.codegen.languages.SpringCodegen", date = "2026-02-28T23:03:45.491137100+07:00[Asia/Bangkok]", comments = "Generator version: 7.10.0")
 public class PermissionResponse {
 
-  private Optional<UUID> id = Optional.empty();
+  private UUID id;
 
-  private Optional<String> resource = Optional.empty();
+  private String resource;
 
-  private Optional<String> action = Optional.empty();
+  private String action;
 
-  private Optional<String> description = Optional.empty();
+  private String description;
 
   @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-  private Optional<OffsetDateTime> createdAt = Optional.empty();
+  private OffsetDateTime createdAt;
 
-  public PermissionResponse id(UUID id) {
-    this.id = Optional.of(id);
-    return this;
-  }
-
-  /**
-   * Get id
-   * @return id
-  */
-  @Valid 
-  @Schema(name = "id", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-  @JsonProperty("id")
-  public Optional<UUID> getId() {
-    return id;
-  }
-
-  public void setId(Optional<UUID> id) {
-    this.id = id;
-  }
-
-  public PermissionResponse resource(String resource) {
-    this.resource = Optional.of(resource);
-    return this;
-  }
-
-  /**
-   * Get resource
-   * @return resource
-  */
-  
-  @Schema(name = "resource", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-  @JsonProperty("resource")
-  public Optional<String> getResource() {
-    return resource;
-  }
-
-  public void setResource(Optional<String> resource) {
-    this.resource = resource;
-  }
-
-  public PermissionResponse action(String action) {
-    this.action = Optional.of(action);
-    return this;
-  }
-
-  /**
-   * Get action
-   * @return action
-  */
-  
-  @Schema(name = "action", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-  @JsonProperty("action")
-  public Optional<String> getAction() {
-    return action;
-  }
-
-  public void setAction(Optional<String> action) {
-    this.action = action;
-  }
-
-  public PermissionResponse description(String description) {
-    this.description = Optional.of(description);
-    return this;
-  }
-
-  /**
-   * Get description
-   * @return description
-  */
-  
-  @Schema(name = "description", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-  @JsonProperty("description")
-  public Optional<String> getDescription() {
-    return description;
-  }
-
-  public void setDescription(Optional<String> description) {
-    this.description = description;
-  }
-
-  public PermissionResponse createdAt(OffsetDateTime createdAt) {
-    this.createdAt = Optional.of(createdAt);
-    return this;
-  }
-
-  /**
-   * Get createdAt
-   * @return createdAt
-  */
-  @Valid 
-  @Schema(name = "createdAt", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-  @JsonProperty("createdAt")
-  public Optional<OffsetDateTime> getCreatedAt() {
-    return createdAt;
-  }
-
-  public void setCreatedAt(Optional<OffsetDateTime> createdAt) {
-    this.createdAt = createdAt;
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-    PermissionResponse permissionResponse = (PermissionResponse) o;
-    return Objects.equals(this.id, permissionResponse.id) &&
-        Objects.equals(this.resource, permissionResponse.resource) &&
-        Objects.equals(this.action, permissionResponse.action) &&
-        Objects.equals(this.description, permissionResponse.description) &&
-        Objects.equals(this.createdAt, permissionResponse.createdAt);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(id, resource, action, description, createdAt);
-  }
-
-  @Override
-  public String toString() {
-    StringBuilder sb = new StringBuilder();
-    sb.append("class PermissionResponse {\n");
-    sb.append("    id: ").append(toIndentedString(id)).append("\n");
-    sb.append("    resource: ").append(toIndentedString(resource)).append("\n");
-    sb.append("    action: ").append(toIndentedString(action)).append("\n");
-    sb.append("    description: ").append(toIndentedString(description)).append("\n");
-    sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
-    sb.append("}");
-    return sb.toString();
-  }
-
-  /**
-   * Convert the given object to string with each line indented by 4 spaces
-   * (except the first line).
-   */
-  private String toIndentedString(Object o) {
-    if (o == null) {
-      return "null";
-    }
-    return o.toString().replace("\n", "\n    ");
-  }
 }
 

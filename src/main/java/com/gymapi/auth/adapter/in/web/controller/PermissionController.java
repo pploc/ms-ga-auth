@@ -1,8 +1,8 @@
 package com.gymapi.auth.adapter.in.web.controller;
 
-import com.gymapi.auth.adapter.in.web.dto.request.CreatePermissionRequest;
-import com.gymapi.auth.adapter.in.web.dto.request.UpdatePermissionRequest;
-import com.gymapi.auth.adapter.in.web.dto.response.PermissionResponse;
+import com.gymapi.auth.adapter.in.web.dto.generated.CreatePermissionRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.UpdatePermissionRequest;
+import com.gymapi.auth.adapter.in.web.dto.generated.PermissionResponse;
 import com.gymapi.auth.adapter.in.web.mapper.AuthWebMapper;
 import com.gymapi.auth.application.port.in.PermissionUseCase;
 import com.gymapi.auth.domain.model.Permission;

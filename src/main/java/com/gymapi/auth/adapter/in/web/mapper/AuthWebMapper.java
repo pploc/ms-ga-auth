@@ -1,7 +1,6 @@
 package com.gymapi.auth.adapter.in.web.mapper;
 
-import com.gymapi.auth.adapter.in.web.dto.request.*;
-import com.gymapi.auth.adapter.in.web.dto.response.*;
+import com.gymapi.auth.adapter.in.web.dto.generated.*;
 import com.gymapi.auth.domain.model.*;
 import org.mapstruct.Mapper;
 import org.mapstruct.MappingConstants;
