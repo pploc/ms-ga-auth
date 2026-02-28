@@ -16,13 +16,9 @@ java {
 apply plugin: 'org.openapi.generator'
 apply from: 'openapi-generate.gradle'
 
-// Ensure `openApiGenerate` runs as part of `build` when the task is present
-tasks.whenTaskAdded { task ->
-    if (task.name == 'openApiGenerate') {
-        tasks.named('build') {
-            dependsOn task
-        }
-    }
+// Ensure `openApiGenerate` runs as part of `build`
+tasks.named('build') {
+    dependsOn 'openApiGenerate'
 }
 
 sourceSets {
