@@ -16,7 +16,12 @@ java {
 apply plugin: 'org.openapi.generator'
 apply from: 'openapi-generate.gradle'
 
-// Ensure `openApiGenerate` runs as part of `build`
+// Ensure OpenAPI generation runs before compilation to avoid errors
+tasks.named('compileJava') {
+    dependsOn 'openApiGenerate'
+}
+
+// Also ensure `openApiGenerate` runs as part of `build` (redundant but safe)
 tasks.named('build') {
     dependsOn 'openApiGenerate'
 }
