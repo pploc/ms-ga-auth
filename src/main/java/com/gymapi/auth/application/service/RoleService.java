@@ -28,6 +28,7 @@ public class RoleService implements RoleUseCase {
 
     private final RoleRepository roleRepository;
     private final RolePermissionRepository rolePermissionRepository;
+    private final com.gymapi.auth.application.port.out.EventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -42,8 +43,7 @@ public class RoleService implements RoleUseCase {
                 description,
                 isSystem,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
 
         return roleRepository.save(role);
     }
@@ -68,8 +68,7 @@ public class RoleService implements RoleUseCase {
                 description,
                 existingRole.isSystem(),
                 existingRole.createdAt(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
 
         return roleRepository.save(updatedRole);
     }
@@ -116,11 +115,12 @@ public class RoleService implements RoleUseCase {
     public void setRolePermissions(UUID roleId, Set<UUID> permissionIds) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RoleNotFoundException(String.format(ROLE_NOT_FOUND, roleId)));
-        
+
         if (role.isSystem()) {
             throw new SystemRoleDeletionException("Cannot modify permissions of system role");
         }
-        
+
         rolePermissionRepository.saveRolePermissions(roleId, List.copyOf(permissionIds));
+        eventPublisher.publishPermissionChanged(roleId.toString(), role.name(), "permissions_updated");
     }
 }

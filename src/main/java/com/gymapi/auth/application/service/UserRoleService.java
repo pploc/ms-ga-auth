@@ -31,6 +31,7 @@ public class UserRoleService implements UserRoleUseCase {
     private final UserRoleRepository userRoleRepository;
     private final RoleService roleService;
     private final RolePermissionRepository rolePermissionRepository;
+    private final com.gymapi.auth.application.port.out.EventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -46,10 +47,14 @@ public class UserRoleService implements UserRoleUseCase {
                 userId,
                 roleId,
                 assignedBy,
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
 
-        return userRoleRepository.save(userRole);
+        UserRole saved = userRoleRepository.save(userRole);
+        eventPublisher.publishRoleAssigned(
+                userId.toString(),
+                roleId.toString(),
+                assignedBy != null ? assignedBy.toString() : null);
+        return saved;
     }
 
     @Override
@@ -59,6 +64,7 @@ public class UserRoleService implements UserRoleUseCase {
                 .orElseThrow(() -> new UserRoleNotFoundException(USER_ROLE_NOT_FOUND));
 
         userRoleRepository.deleteByUserIdAndRoleId(userId, roleId);
+        eventPublisher.publishRoleRevoked(userId.toString(), roleId.toString());
     }
 
     @Override
@@ -79,15 +85,15 @@ public class UserRoleService implements UserRoleUseCase {
     @Override
     public RolesWithPermissions getUserRolesWithPermissions(UUID userId) {
         List<UserRole> userRoles = userRoleRepository.findByUserId(userId);
-        
+
         List<String> roleNames = new ArrayList<>();
         Set<String> permissions = new LinkedHashSet<>();
-        
+
         for (UserRole userRole : userRoles) {
             try {
                 Role role = roleService.getRoleById(userRole.roleId());
                 roleNames.add(role.name());
-                
+
                 List<Permission> rolePermissions = rolePermissionRepository.findPermissionsByRoleId(userRole.roleId());
                 for (Permission permission : rolePermissions) {
                     String permString = permission.resource() + ":" + permission.action();
@@ -97,7 +103,7 @@ public class UserRoleService implements UserRoleUseCase {
                 // Skip if role not found
             }
         }
-        
+
         return new RolesWithPermissions(userId, roleNames, new ArrayList<>(permissions));
     }
 }

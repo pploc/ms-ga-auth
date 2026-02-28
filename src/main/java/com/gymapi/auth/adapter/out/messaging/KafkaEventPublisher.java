@@ -10,7 +10,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
-import java.util.Map;
 
 @Slf4j
 @Component
@@ -25,37 +24,35 @@ public class KafkaEventPublisher implements EventPublisher {
 
     @Override
     public void publishRoleAssigned(String userId, String roleId, String assignedBy) {
-        publishEvent("auth.role_assigned", Map.of(
-                "eventType", "auth.role_assigned",
-                "userId", userId,
-                "roleId", roleId,
-                "assignedBy", assignedBy != null ? assignedBy : "",
-                "timestamp", OffsetDateTime.now().toString()
-        ));
+        java.util.Map<String, String> data = new java.util.HashMap<>();
+        data.put("eventType", "auth.role_assigned");
+        data.put("userId", userId);
+        data.put("roleId", roleId);
+        data.put("assignedBy", assignedBy != null ? assignedBy : "");
+        data.put("timestamp", OffsetDateTime.now().toString());
+        publishEvent("auth.role_assigned", data);
     }
 
     @Override
     public void publishRoleRevoked(String userId, String roleId) {
-        publishEvent("auth.role_revoked", Map.of(
+        publishEvent("auth.role_revoked", java.util.Map.of(
                 "eventType", "auth.role_revoked",
                 "userId", userId,
                 "roleId", roleId,
-                "timestamp", OffsetDateTime.now().toString()
-        ));
+                "timestamp", OffsetDateTime.now().toString()));
     }
 
     @Override
-    public void publishPermissionChanged(String roleId, String permissionId, String action) {
-        publishEvent("auth.permission_changed", Map.of(
+    public void publishPermissionChanged(String roleId, String roleName, String changeType) {
+        publishEvent("auth.permission_changed", java.util.Map.of(
                 "eventType", "auth.permission_changed",
                 "roleId", roleId,
-                "permissionId", permissionId,
-                "action", action,
-                "timestamp", OffsetDateTime.now().toString()
-        ));
+                "roleName", roleName,
+                "changeType", changeType,
+                "timestamp", OffsetDateTime.now().toString()));
     }
 
-    private void publishEvent(String eventType, Map<String, String> event) {
+    private void publishEvent(String eventType, java.util.Map<String, String> event) {
         try {
             String message = objectMapper.writeValueAsString(event);
             kafkaTemplate.send(authTopic, eventType, message);

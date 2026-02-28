@@ -33,6 +33,9 @@ class RoleServiceTest {
     @Mock
     private RolePermissionRepository rolePermissionRepository;
 
+    @Mock
+    private com.gymapi.auth.application.port.out.EventPublisher eventPublisher;
+
     @InjectMocks
     private RoleService roleService;
 
@@ -48,8 +51,7 @@ class RoleServiceTest {
                 "Test role description",
                 false,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
     }
 
     @Test
@@ -68,7 +70,7 @@ class RoleServiceTest {
     void createRole_DuplicateName_ThrowsException() {
         when(roleRepository.existsByName("EXISTING_ROLE")).thenReturn(true);
 
-        assertThrows(DuplicateRoleException.class, 
+        assertThrows(DuplicateRoleException.class,
                 () -> roleService.createRole("EXISTING_ROLE", "Description", false));
     }
 
@@ -86,7 +88,7 @@ class RoleServiceTest {
     void getRoleById_NotFound_ThrowsException() {
         when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
 
-        assertThrows(RoleNotFoundException.class, 
+        assertThrows(RoleNotFoundException.class,
                 () -> roleService.getRoleById(roleId));
     }
 
@@ -118,11 +120,10 @@ class RoleServiceTest {
                 "System role",
                 true,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(systemRole));
 
-        assertThrows(SystemRoleDeletionException.class, 
+        assertThrows(SystemRoleDeletionException.class,
                 () -> roleService.updateRole(roleId, "NAME", "desc"));
     }
 
@@ -143,11 +144,10 @@ class RoleServiceTest {
                 "System role",
                 true,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(systemRole));
 
-        assertThrows(SystemRoleDeletionException.class, 
+        assertThrows(SystemRoleDeletionException.class,
                 () -> roleService.deleteRole(roleId));
     }
 
@@ -170,6 +170,7 @@ class RoleServiceTest {
         roleService.setRolePermissions(roleId, java.util.Set.of(permId));
 
         verify(rolePermissionRepository).saveRolePermissions(eq(roleId), anyList());
+        verify(eventPublisher).publishPermissionChanged(eq(roleId.toString()), anyString(), eq("permissions_updated"));
     }
 
     @Test
@@ -180,11 +181,10 @@ class RoleServiceTest {
                 "System role",
                 true,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(systemRole));
 
-        assertThrows(SystemRoleDeletionException.class, 
+        assertThrows(SystemRoleDeletionException.class,
                 () -> roleService.setRolePermissions(roleId, java.util.Set.of()));
     }
 }

@@ -4,10 +4,11 @@ import com.gymapi.auth.adapter.out.persistence.entity.*;
 import com.gymapi.auth.domain.model.*;
 import org.mapstruct.Mapper;
 import org.mapstruct.MappingConstants;
+import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
 
-@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface AuthPersistenceMapper {
 
     Role toRole(RoleEntity entity);
@@ -23,6 +24,8 @@ public interface AuthPersistenceMapper {
     UserRoleEntity toUserRoleEntity(UserRole userRole);
 
     List<Role> toRoleList(List<RoleEntity> entities);
+
     List<Permission> toPermissionList(List<PermissionEntity> entities);
+
     List<UserRole> toUserRoleList(List<UserRoleEntity> entities);
 }

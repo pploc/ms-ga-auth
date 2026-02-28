@@ -5,10 +5,14 @@ spring:
   application:
     name: ms-ga-auth
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:auth_db}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5434}/${DB_NAME:auth_db}
     username: ${DB_USER:postgres}
     password: ${DB_PASS:postgres}
     driver-class-name: org.postgresql.Driver
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    topic:
+      auth: ${AUTH_TOPIC:auth.events}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -20,11 +24,6 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-
-kafka:
-  bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
-  topic:
-    auth: auth.events
 
 jwt:
   secret: ${JWT_SECRET:supersecretkeythatisverylongandsecureenoughforHS256}

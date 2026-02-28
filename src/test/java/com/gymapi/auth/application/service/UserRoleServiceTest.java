@@ -35,6 +35,9 @@ class UserRoleServiceTest {
     @Mock
     private RolePermissionRepository rolePermissionRepository;
 
+    @Mock
+    private com.gymapi.auth.application.port.out.EventPublisher eventPublisher;
+
     @InjectMocks
     private UserRoleService userRoleService;
 
@@ -47,23 +50,21 @@ class UserRoleServiceTest {
     void setUp() {
         userId = UUID.randomUUID();
         roleId = UUID.randomUUID();
-        
+
         testRole = new Role(
                 roleId,
                 "MEMBER",
                 "Member role",
                 true,
                 OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
-        
+                OffsetDateTime.now());
+
         testUserRole = new UserRole(
                 UUID.randomUUID(),
                 userId,
                 roleId,
                 UUID.randomUUID(),
-                OffsetDateTime.now()
-        );
+                OffsetDateTime.now());
     }
 
     @Test
@@ -77,6 +78,7 @@ class UserRoleServiceTest {
         assertNotNull(result);
         assertEquals(userId, result.userId());
         assertEquals(roleId, result.roleId());
+        verify(eventPublisher).publishRoleAssigned(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -95,6 +97,7 @@ class UserRoleServiceTest {
         userRoleService.revokeRole(userId, roleId);
 
         verify(userRoleRepository).deleteByUserIdAndRoleId(userId, roleId);
+        verify(eventPublisher).publishRoleRevoked(anyString(), anyString());
     }
 
     @Test
@@ -135,7 +138,7 @@ class UserRoleServiceTest {
     @Test
     void getUserRolesWithPermissions_Success() {
         Permission perm = new Permission(UUID.randomUUID(), "booking", "read", "Read", OffsetDateTime.now());
-        
+
         when(userRoleRepository.findByUserId(userId)).thenReturn(List.of(testUserRole));
         when(roleService.getRoleById(roleId)).thenReturn(testRole);
         when(rolePermissionRepository.findPermissionsByRoleId(roleId)).thenReturn(List.of(perm));

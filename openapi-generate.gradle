@@ -29,9 +29,9 @@ openApiGenerate {
     ]
     
     globalProperties = [
-        modelTests: "false",
-        apiTests: "false",
-        generateApis: "false"
+        models: "",
+        apis: "false",
+        supportingFiles: "false"
     ]
 }
 

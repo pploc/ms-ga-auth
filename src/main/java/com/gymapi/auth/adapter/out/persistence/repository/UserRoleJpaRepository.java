@@ -15,16 +15,16 @@ public interface UserRoleJpaRepository extends JpaRepository<UserRoleEntity, UUI
     @Query("SELECT ur FROM UserRoleEntity ur WHERE ur.userId = :userId")
     List<UserRoleEntity> findByUserId(UUID userId);
 
-    @Query("SELECT ur FROM UserRoleEntity ur WHERE ur.roleId = :roleId")
+    @Query("SELECT ur FROM UserRoleEntity ur WHERE ur.role.id = :roleId")
     List<UserRoleEntity> findByRoleId(UUID roleId);
 
-    Optional<UserRoleEntity> findByUserIdAndRoleId(UUID userId, UUID roleId);
+    Optional<UserRoleEntity> findByUserIdAndRole_Id(UUID userId, UUID roleId);
 
-    boolean existsByUserIdAndRoleId(UUID userId, UUID roleId);
+    boolean existsByUserIdAndRole_Id(UUID userId, UUID roleId);
 
-    void deleteByUserIdAndRoleId(UUID userId, UUID roleId);
+    void deleteByUserIdAndRole_Id(UUID userId, UUID roleId);
 
     void deleteByUserId(UUID userId);
 
-    void deleteByRoleId(UUID roleId);
+    void deleteByRole_Id(UUID roleId);
 }

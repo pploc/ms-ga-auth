@@ -42,17 +42,17 @@ public class UserRoleRepositoryAdapter implements UserRoleRepository {
 
     @Override
     public Optional<UserRole> findByUserIdAndRoleId(UUID userId, UUID roleId) {
-        return userRoleJpaRepository.findByUserIdAndRoleId(userId, roleId).map(mapper::toUserRole);
+        return userRoleJpaRepository.findByUserIdAndRole_Id(userId, roleId).map(mapper::toUserRole);
     }
 
     @Override
     public boolean existsByUserIdAndRoleId(UUID userId, UUID roleId) {
-        return userRoleJpaRepository.existsByUserIdAndRoleId(userId, roleId);
+        return userRoleJpaRepository.existsByUserIdAndRole_Id(userId, roleId);
     }
 
     @Override
     public void deleteByUserIdAndRoleId(UUID userId, UUID roleId) {
-        userRoleJpaRepository.deleteByUserIdAndRoleId(userId, roleId);
+        userRoleJpaRepository.deleteByUserIdAndRole_Id(userId, roleId);
     }
 
     @Override
@@ -62,6 +62,6 @@ public class UserRoleRepositoryAdapter implements UserRoleRepository {
 
     @Override
     public void deleteByRoleId(UUID roleId) {
-        userRoleJpaRepository.deleteByRoleId(roleId);
+        userRoleJpaRepository.deleteByRole_Id(roleId);
     }
 }
