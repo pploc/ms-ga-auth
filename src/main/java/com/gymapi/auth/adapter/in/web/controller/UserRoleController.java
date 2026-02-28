@@ -36,13 +36,11 @@ public class UserRoleController {
         UserRole userRole = userRoleUseCase.assignRole(
                 userId,
                 request.getRoleId(),
-                request.getAssignedBy()
-        );
+                request.getAssignedBy());
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "message", "Role assigned.",
                 "user_id", userId,
-                "role_id", request.getRoleId()
-        ));
+                "role_id", request.getRoleId()));
     }
 
     @DeleteMapping("/{roleId}")
@@ -74,11 +72,6 @@ public class UserRoleController {
     @Operation(summary = "Get user's roles with permissions (internal use)")
     public ResponseEntity<RolesWithPermissionsResponse> getUserRolesWithPermissions(@PathVariable UUID userId) {
         RolesWithPermissions rolesWithPermissions = userRoleUseCase.getUserRolesWithPermissions(userId);
-        RolesWithPermissionsResponse response = new RolesWithPermissionsResponse(
-                rolesWithPermissions.userId(),
-                rolesWithPermissions.roles(),
-                rolesWithPermissions.permissions()
-        );
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(mapper.toRolesWithPermissionsResponse(rolesWithPermissions));
     }
 }
