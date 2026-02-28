@@ -1,21 +1,13 @@
 package com.gymapi.auth.domain.model;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class Permission {
-    private UUID id;
-    private String resource;
-    private String action;
-    private String description;
-    private LocalDateTime createdAt;
+public record Permission(
+        UUID id,
+        String resource,
+        String action,
+        String description,
+        OffsetDateTime createdAt
+) {
 }
