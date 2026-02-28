@@ -1,5 +1,6 @@
 package com.gymapi.auth.application.port.in;
 
+import com.gymapi.auth.domain.model.RolesWithPermissions;
 import com.gymapi.auth.domain.model.UserRole;
 
 import java.util.List;
@@ -11,4 +12,5 @@ public interface UserRoleUseCase {
     List<UserRole> getUserRoles(UUID userId);
     List<UserRole> getRoleUsers(UUID roleId);
     boolean hasRole(UUID userId, UUID roleId);
+    RolesWithPermissions getUserRolesWithPermissions(UUID userId);
 }

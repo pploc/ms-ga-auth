@@ -1,8 +1,10 @@
 package com.gymapi.auth.application.port.in;
 
+import com.gymapi.auth.domain.model.Permission;
 import com.gymapi.auth.domain.model.Role;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public interface RoleUseCase {
@@ -12,4 +14,6 @@ public interface RoleUseCase {
     Role getRoleById(UUID id);
     Role getRoleByName(String name);
     List<Role> getAllRoles();
+    List<Permission> getRolePermissions(UUID roleId);
+    void setRolePermissions(UUID roleId, Set<UUID> permissionIds);
 }

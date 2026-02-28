@@ -1,10 +1,12 @@
 package com.gymapi.auth.application.service;
 
 import com.gymapi.auth.application.port.in.RoleUseCase;
+import com.gymapi.auth.application.port.out.RolePermissionRepository;
 import com.gymapi.auth.application.port.out.RoleRepository;
 import com.gymapi.auth.domain.exception.SystemRoleDeletionException;
 import com.gymapi.auth.domain.exception.DuplicateRoleException;
 import com.gymapi.auth.domain.exception.RoleNotFoundException;
+import com.gymapi.auth.domain.model.Permission;
 import com.gymapi.auth.domain.model.Role;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -24,6 +27,7 @@ public class RoleService implements RoleUseCase {
     private static final String ROLE_NOT_FOUND = "Role not found with id: %s";
 
     private final RoleRepository roleRepository;
+    private final RolePermissionRepository rolePermissionRepository;
 
     @Override
     @Transactional
@@ -98,5 +102,25 @@ public class RoleService implements RoleUseCase {
     @Override
     public List<Role> getAllRoles() {
         return roleRepository.findAll();
+    }
+
+    @Override
+    public List<Permission> getRolePermissions(UUID roleId) {
+        roleRepository.findById(roleId)
+                .orElseThrow(() -> new RoleNotFoundException(String.format(ROLE_NOT_FOUND, roleId)));
+        return rolePermissionRepository.findPermissionsByRoleId(roleId);
+    }
+
+    @Override
+    @Transactional
+    public void setRolePermissions(UUID roleId, Set<UUID> permissionIds) {
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new RoleNotFoundException(String.format(ROLE_NOT_FOUND, roleId)));
+        
+        if (role.isSystem()) {
+            throw new SystemRoleDeletionException("Cannot modify permissions of system role");
+        }
+        
+        rolePermissionRepository.saveRolePermissions(roleId, List.copyOf(permissionIds));
     }
 }
