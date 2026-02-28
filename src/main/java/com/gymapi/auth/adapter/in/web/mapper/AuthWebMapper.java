@@ -11,6 +11,7 @@ import java.util.List;
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface AuthWebMapper {
 
+    @org.mapstruct.Mapping(source = "system", target = "isSystem")
     Role toRole(CreateRoleRequest request);
 
     Role toRole(UpdateRoleRequest request);
@@ -32,4 +33,6 @@ public interface AuthWebMapper {
     List<PermissionResponse> toPermissionResponseList(List<Permission> permissions);
 
     List<UserRoleResponse> toUserRoleResponseList(List<UserRole> userRoles);
+
+    RolesWithPermissionsResponse toRolesWithPermissionsResponse(RolesWithPermissions rolesWithPermissions);
 }
