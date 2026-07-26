@@ -1,0 +1,70 @@
+// OpenAPI model generation — applied from build.gradle.
+//
+// `api/openapi/auth-api.yaml` is the single source of truth for every request/response shape.
+// Only models are generated; controllers stay hand-written so the hexagonal boundaries
+// (adapter -> port -> domain) remain explicit.
+//
+// Output lands in `build/generated/openapi` and is wired into the main source set, so it is
+// never committed and never formatted by Spotless.
+
+def openApiOutputDir = layout.buildDirectory.dir('generated/openapi')
+
+openApiGenerate {
+    generatorName = 'spring'
+    inputSpec = "$projectDir/api/openapi/auth-api.yaml"
+    outputDir = openApiOutputDir.get().asFile.absolutePath
+    modelPackage = 'com.gymapi.auth.adapter.in.web.dto.generated'
+    apiPackage = 'com.gymapi.auth.adapter.in.web.api.generated'
+    invokerPackage = 'com.gymapi.auth.adapter.in.web.invoker.generated'
+
+    configOptions = [
+        // Spring Boot 3 is Jakarta EE 9+. Without this the generator emits `javax.validation.*`
+        // annotations, which Hibernate Validator silently ignores — i.e. no request validation.
+        useJakartaEe                  : 'true',
+        useBeanValidation             : 'true',
+        performBeanValidation         : 'true',
+        // Deliberately no Lombok annotations here: the generator skips getters when it detects
+        // Lombok, and the `@Schema`/`@NotNull`/`@Size` annotations live on the getters. Plain
+        // POJOs give us documented, validated DTOs with no post-processing.
+        useOptional                   : 'false',
+        openApiNullable               : 'false',
+        serializableModel             : 'false',
+        hideGenerationTimestamp       : 'true',
+        documentationProvider         : 'springdoc',
+        annotationLibrary             : 'swagger2',
+    ]
+
+    globalProperties = [
+        models         : '',
+        modelDocs      : 'false',
+        modelTests     : 'false',
+        apis           : 'false',
+        apiDocs        : 'false',
+        apiTests       : 'false',
+        supportingFiles: 'false'
+    ]
+}
+
+// The generator lays down empty api/invoker package directories even when only models are
+// requested. Removing them keeps the source set to exactly the DTOs.
+tasks.register('pruneGeneratedPackages') {
+    description = 'Drop empty api/invoker packages left behind by openApiGenerate'
+    group = 'openapi'
+    dependsOn 'openApiGenerate'
+
+    doLast {
+        def base = openApiOutputDir.get().dir('src/main/java').asFile
+        ['com/gymapi/auth/adapter/in/web/api',
+         'com/gymapi/auth/adapter/in/web/invoker',
+         'org/openapitools'].each { path ->
+            def dir = new File(base, path)
+            if (dir.exists()) {
+                dir.deleteDir()
+            }
+        }
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn 'pruneGeneratedPackages'
+}

@@ -1,0 +1,57 @@
+{{/*
+Availability controls. Every login on the platform resolves permissions through this service, so
+it being unavailable is a total outage rather than a degraded feature.
+*/}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gymapi.fullname" . }}
+  labels:
+    {{- include "gymapi.labels" . | nindent 4 }}
+spec:
+  {{/*
+  minAvailable, not maxUnavailable: with an autoscaler changing the replica count, a percentage
+  would silently permit a full drain at the low end.
+  */}}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gymapi.selectorLabels" . | nindent 6 }}
+{{- end }}
+---
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "gymapi.fullname" . }}
+  labels:
+    {{- include "gymapi.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "gymapi.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      {{/*
+      Login traffic is spiky. Scaling down eagerly means paying the JVM warm-up cost again on the
+      next spike, on the platform's most latency-sensitive path.
+      */}}
+      stabilizationWindowSeconds: {{ .Values.autoscaling.scaleDownStabilizationSeconds }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}

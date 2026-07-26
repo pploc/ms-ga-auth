@@ -1,0 +1,291 @@
+# Kong declarative (DB-less) configuration.
+#
+# This file has two jobs, and they have different owners. Read the section markers before
+# changing anything.
+#
+#   SECTION 1 — OWNED BY THIS REPO
+#     The ms-ga-auth service, its routes, and the plugins scoped to those routes. This is the
+#     fragment the platform gateway consumes. Entity names are prefixed `ms-ga-auth-` so twelve
+#     fragments merge without collision.
+#
+#   SECTION 2 — OWNED BY THE PLATFORM, duplicated here only so the local stack boots standalone
+#     The shared JWT verification credential and the global plugins. Every service needs these,
+#     so they are declared once in the platform config. If twelve repos each shipped them, the
+#     merge would fail on duplicate keys. Do not treat this section as this repo's to change.
+#
+# Merging is decK's job in CI, not a copy-paste:
+#
+#     deck file merge deploy/kong/kong.yml ../ms-ga-*/deploy/kong/kong.yml -o gateway.yml
+#     deck gateway diff gateway.yml        # review
+#     deck gateway sync gateway.yml
+#
+# ...with section 2 taken from the platform repo rather than from any service. Until that
+# pipeline exists, section 2 is duplicated in each service and will drift.
+#
+# The service itself leaves /auth/** permitAll and trusts what reaches it, so everything that
+# actually protects the RBAC API is in section 1. Treat it as production code.
+_format_version: "3.0"
+_transform: true
+
+# ===========================================================================
+# SECTION 1 — OWNED BY THIS REPO
+# ===========================================================================
+
+services:
+  - name: ms-ga-auth
+    # host.docker.internal reaches the app running on your machine via `./gradlew bootRun`.
+    # In a real deployment this is the service DNS name, e.g. http://ms-ga-auth.default:8082.
+    url: http://host.docker.internal:8082
+
+    # Kong retries a failed request 5 times by default. That would silently turn one timed-out
+    # POST /auth/users/{id}/roles into several role assignments — the exact duplicate this
+    # service's Idempotency-Key support exists to prevent. Retrying is the *client's* decision,
+    # made safe by sending that header; it is not the gateway's to make.
+    retries: 0
+
+    connect_timeout: 2000
+    # Must exceed gymapi.events.publish-timeout (25s). A mutating call blocks on the Kafka ack
+    # before responding; time out below that and Kong returns 504 while the service is still
+    # deciding whether to commit, leaving the caller unable to tell what happened.
+    read_timeout: 35000
+    write_timeout: 35000
+
+    routes:
+      # ---------------------------------------------------------------------
+      # 1. The login path. This one is the reason a blanket JWT plugin on /auth
+      #    would take the whole platform down.
+      #
+      #    ms-ga-identifier calls this endpoint *while minting a token*, so the caller has no
+      #    JWT to present — requiring one is a deadlock: no permissions without a token, no
+      #    token without permissions.
+      #
+      #    It is protected as service-to-service instead: an API key plus a source-IP
+      #    restriction, and never published on the public listener.
+      #
+      #    A regex path so it out-prioritises the prefix route below.
+      # ---------------------------------------------------------------------
+      - name: ms-ga-auth-internal-resolve-permissions
+        paths:
+          - ~/auth/users/[0-9a-fA-F-]{36}/roles/with-permissions$
+        methods: [GET]
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config:
+              key_names: [X-Service-Key]
+              hide_credentials: true
+          - name: ip-restriction
+            config:
+              # Cluster-internal ranges only. Narrow this to the identifier service's
+              # subnet, or drop it in favour of mTLS, once the network layout is fixed.
+              allow:
+                - 10.0.0.0/8
+                - 172.16.0.0/12
+                - 192.168.0.0/16
+                - 127.0.0.1/32
+          - name: rate-limiting
+            config:
+              # Roughly one call per login. Generous, but a runaway identifier should not be
+              # able to saturate the RBAC database.
+              second: 100
+              minute: 3000
+              policy: local
+              fault_tolerant: true
+
+      # ---------------------------------------------------------------------
+      # 2. RBAC administration. Everything else under /auth.
+      #    Requires a valid JWT *and* the role:manage permission.
+      # ---------------------------------------------------------------------
+      - name: ms-ga-auth-admin
+        paths:
+          - /auth
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              # Our tokens carry the issuer in `iss`; the consumer credential below is keyed on it.
+              key_claim_name: iss
+              claims_to_verify: [exp]
+              secret_is_base64: false
+              run_on_preflight: false
+          - name: rate-limiting
+            config:
+              minute: 120
+              hour: 2000
+              policy: local
+              fault_tolerant: true
+          - name: cors
+            config:
+              # Replaces the service's own allowedOrigins("*"). Set this to the admin console's
+              # real origin; `*` here would reintroduce the hole one layer up.
+              origins:
+                - http://localhost:3000
+              methods: [GET, POST, PUT, DELETE, OPTIONS]
+              headers:
+                - Accept
+                - Content-Type
+                - Authorization
+                - Idempotency-Key
+                - X-Correlation-Id
+              exposed_headers:
+                - X-Correlation-Id
+                - Idempotency-Replayed
+              credentials: true
+              max_age: 3600
+
+          # -----------------------------------------------------------------
+          # Claim extraction and permission enforcement.
+          #
+          # Kong OSS validates a JWT's signature but does not surface its claims, and has no
+          # way to assert that one of them contains a given value. Both are done here.
+          #
+          # post-function, not pre-function: pre-function has the highest plugin priority in
+          # Kong and would run *before* the jwt plugin, so this code would be reading claims
+          # from a token whose signature had not been checked yet. post-function runs last in
+          # the access phase, after jwt has accepted the token.
+          # -----------------------------------------------------------------
+          - name: post-function
+            config:
+              access:
+                - |
+                  local REQUIRED_PERMISSION = "role:manage"
+
+                  -- Never trust inbound X-User-* headers. Without this, anyone who can reach
+                  -- Kong could assert their own permissions and the service would believe
+                  -- them, because it treats these headers as verified identity.
+                  for _, header in ipairs({ "X-User-Id", "X-User-Email", "X-User-Roles",
+                                            "X-User-Permissions", "X-User-Jti" }) do
+                    kong.service.request.clear_header(header)
+                  end
+
+                  -- Mirrors the service's ErrorResponse envelope, so a client sees one error
+                  -- shape whether the gateway or the application refused the request.
+                  local function deny(status, code, message)
+                    return kong.response.exit(status, {
+                      timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z"),
+                      status    = status,
+                      error     = status == 401 and "Unauthorized" or "Forbidden",
+                      code      = code,
+                      message   = message,
+                      path      = kong.request.get_path(),
+                      traceId   = kong.request.get_header("X-Correlation-Id"),
+                    }, { ["Content-Type"] = "application/json" })
+                  end
+
+                  local authorization = kong.request.get_header("authorization")
+                  local token = authorization and authorization:match("^[Bb]earer%s+(.+)$")
+                  if not token then
+                    return deny(401, "UNAUTHENTICATED",
+                                "Authentication is required to access this resource")
+                  end
+
+                  -- Signature and expiry are already verified by the jwt plugin; this decode
+                  -- only reads the claims back out.
+                  local jwt_parser = require "kong.plugins.jwt.jwt_parser"
+                  local jwt, err = jwt_parser:new(token)
+                  if err or not jwt then
+                    return deny(401, "UNAUTHENTICATED", "Bearer token could not be read")
+                  end
+
+                  local claims = jwt.claims or {}
+                  local permissions = claims.permissions or {}
+
+                  local granted = false
+                  for _, permission in ipairs(permissions) do
+                    if permission == REQUIRED_PERMISSION then
+                      granted = true
+                      break
+                    end
+                  end
+                  if not granted then
+                    return deny(403, "ACCESS_DENIED",
+                                "Managing roles and permissions requires " .. REQUIRED_PERMISSION)
+                  end
+
+                  -- Hand the verified identity downstream. The service reads these rather than
+                  -- parsing the token again; see the platform's embedded-permissions model.
+                  kong.service.request.set_header("X-User-Id", claims.sub or "")
+                  kong.service.request.set_header("X-User-Email", claims.email or "")
+                  kong.service.request.set_header("X-User-Roles",
+                                                  table.concat(claims.roles or {}, ","))
+                  kong.service.request.set_header("X-User-Permissions",
+                                                  table.concat(permissions, ","))
+                  kong.service.request.set_header("X-User-Jti", claims.jti or "")
+
+      # ---------------------------------------------------------------------
+      # 3. API documentation. Convenient locally; remove this route in production —
+      #    there is no reason to publish the schema of an admin API to the internet.
+      # ---------------------------------------------------------------------
+      - name: ms-ga-auth-docs
+        paths:
+          - /auth-docs
+        strip_path: true
+        methods: [GET]
+
+# ===========================================================================
+# SECTION 2 — OWNED BY THE PLATFORM
+#
+# Present so `./gradlew startGateway` boots a working Kong on its own. In a real deployment these
+# come from the platform config, once, for all twelve services. Shipping them from twelve repos
+# would collide on the duplicate consumer key and the duplicate global plugins.
+#
+# Strip this section before handing the file to a platform-level merge.
+# ===========================================================================
+
+consumers:
+  # The identity service, calling the login-support route in section 1. Arguably platform-owned
+  # too — it is one credential the identity service uses everywhere, not per-service.
+  - username: ms-ga-identifier
+    keyauth_credentials:
+      - key: "${IDENTIFIER_SERVICE_KEY}"
+
+  # Not a caller: the `jwt` plugin resolves a token's `iss` claim to this consumer's credential to
+  # find the verification secret. Every user token issued by the identity service lands here, for
+  # every service behind the gateway — which is exactly why it cannot live in a service fragment.
+  - username: gymapi-tokens
+    jwt_secrets:
+      - key: ms-ga-identifier
+        algorithm: HS256
+        secret: "${JWT_SECRET}"
+
+# Global plugins: applied to every route on the gateway, not just this service's.
+#
+# The correlation id header name matches CorrelationIdFilter, so an id generated at the edge flows
+# through this service's logs and into the traceId of its error responses. The service generates
+# its own if the gateway is bypassed.
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-Id
+      generator: uuid
+      echo_downstream: true
+
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 1
+      size_unit: megabytes
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT here
+#
+# * Redis JTI blacklist. The platform documents Kong checking each token's jti against the
+#   blacklist ms-ga-identifier writes on logout. That is a global concern against another
+#   service's Redis, so it belongs in the platform config as a global pre-function rather than
+#   a copy in every service fragment. Sketch, for whoever adds it:
+#
+#     local redis = require "resty.redis"
+#     local client = redis:new()
+#     client:set_timeout(200)
+#     local ok = client:connect(os.getenv("REDIS_HOST"), 6379)
+#     if not ok then return deny(503, "UNAVAILABLE", "Token status unavailable") end
+#     local blacklisted = client:get("blacklist:" .. (claims.jti or ""))
+#     client:set_keepalive(10000, 100)
+#     if blacklisted and blacklisted ~= ngx.null then
+#       return deny(401, "UNAUTHENTICATED", "Token has been revoked")
+#     end
+#
+#   Note the fail-closed 503: if the blacklist cannot be read, a revoked token must not be
+#   allowed through. That is a real availability trade and needs a platform-level decision.
+#
+# * TLS. Terminated at HAProxy in front of Kong — see deploy/haproxy/haproxy.cfg.
+# ---------------------------------------------------------------------------

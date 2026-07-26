@@ -1,0 +1,15 @@
+{{/*
+Every key becomes an environment variable. The application reads these as the ${...} defaults in
+src/main/resources/application.yml; anything omitted falls back to those, which are tuned for
+local development — so review values.yaml rather than assuming an unset key is safe.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gymapi.fullname" . }}-config
+  labels:
+    {{- include "gymapi.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

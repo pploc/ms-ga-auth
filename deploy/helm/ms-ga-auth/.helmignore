@@ -1,0 +1,9 @@
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.tmp
+*.orig
+*.bak
+# Documentation only — never rendered, and must not be packaged as if it were deployable.
+secret.example.yaml

@@ -1,0 +1,1379 @@
+openapi: 3.0.3
+
+info:
+  title: ms-ga-auth API
+  version: 1.0.0
+  description: |
+    Authorization management for the GymAPI platform — the service that answers
+    **"what can this user do?"**. Identity itself (register, login, token issuance)
+    is owned by `ms-ga-identifier`.
+
+    Responsibilities:
+
+    * **Roles** — CRUD over named role definitions (`MEMBER`, `TRAINER`, ...).
+    * **Permissions** — CRUD over `resource:action` grants (`booking:create`, ...).
+    * **Role ↔ permission mappings** — which grants a role carries.
+    * **User ↔ role assignments** — which roles a user holds.
+
+    `GET /auth/users/{userId}/roles/with-permissions` is the hot path: `ms-ga-identifier`
+    calls it once at login and embeds the result in the issued JWT, so no service needs a
+    per-request authorization round trip.
+
+    ## Errors
+
+    Every non-2xx response uses the same `ErrorResponse` body. Branch on the stable
+    `code` field rather than on `message` (human-readable, may change) or on the HTTP
+    status alone (several codes share a status). Validation failures additionally carry
+    a `fieldErrors` array pinpointing the offending fields.
+
+    Every response echoes an `X-Correlation-Id` header; the same value appears as
+    `traceId` in error bodies and in this service's logs. Include it in bug reports,
+    or send your own on the request to have it propagated.
+
+    ## Retries and idempotency
+
+    Domain events are published with at-least-once delivery: the service waits for the
+    broker to acknowledge a write and rolls the change back if it does not, answering
+    **503 `EVENT_PUBLISH_FAILED`**. A 503 is therefore a request you are expected to send
+    again — as is any timeout, where you cannot tell whether the change landed.
+
+    To retry safely, send an `Idempotency-Key` header on the original request. The
+    response is recorded against that key for 24 hours, and any retry carrying the same
+    key replays the recorded response with `Idempotency-Replayed: true` instead of
+    performing the work twice. `GET` endpoints need no key — they change nothing —
+    and `PUT` endpoints already replace rather than accumulate, but a key still spares
+    them a redundant round trip.
+
+    Consumers of `auth.events` should expect the same event more than once: every payload
+    carries a unique `eventId` (also present as a Kafka record header) to de-duplicate on.
+  contact:
+    name: GymAPI Platform Team
+    email: platform@gymapi.local
+
+servers:
+  - url: http://localhost:8082
+    description: Local development (direct)
+  - url: http://localhost:8000
+    description: Kong API gateway
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Role Management
+    description: Create, read, update and delete roles, and manage the permissions each role carries.
+  - name: Permission Management
+    description: Create, read, update and delete the `resource:action` permissions roles can be granted.
+  - name: User Role Management
+    description: Assign and revoke roles for a user, and resolve the effective permission set used at login.
+
+paths:
+  /auth/roles:
+    get:
+      tags: [Role Management]
+      summary: List all roles
+      description: Returns every role defined in the system, including seeded system roles.
+      operationId: getAllRoles
+      responses:
+        '200':
+          description: The full list of roles. Empty array when none exist.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Role Management]
+      summary: Create a new role
+      description: |
+        Creates a role. Role names are unique and case-sensitive.
+
+        Setting `system` to `true` marks the role as platform-managed, which makes it
+        immutable through this API afterwards — subsequent updates, deletes and
+        permission changes are rejected with `SYSTEM_ROLE_IMMUTABLE`.
+      operationId: createRole
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A role with that name already exists (`ROLE_ALREADY_EXISTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 409
+                error: Conflict
+                code: ROLE_ALREADY_EXISTS
+                message: Role with name 'MEMBER' already exists
+                path: /auth/roles
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/roles/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoleId'
+    get:
+      tags: [Role Management]
+      summary: Get a role by ID
+      operationId: getRoleById
+      responses:
+        '200':
+          description: The requested role.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags: [Role Management]
+      summary: Update a role
+      description: |
+        Replaces the name and description of a non-system role.
+        System roles are immutable and are rejected with `SYSTEM_ROLE_IMMUTABLE`.
+      operationId: updateRole
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Role updated.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/SystemRoleImmutable'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '409':
+          description: Another role already uses the requested name (`ROLE_ALREADY_EXISTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Role Management]
+      summary: Delete a role
+      description: |
+        Deletes a non-system role together with its permission mappings.
+        Existing user assignments for the role are removed by cascade.
+      operationId: deleteRole
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Role deleted. No body.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/SystemRoleImmutable'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/roles/name/{name}:
+    get:
+      tags: [Role Management]
+      summary: Get a role by name
+      description: Case-sensitive lookup by the unique role name, e.g. `MEMBER`.
+      operationId: getRoleByName
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Unique role name.
+          schema:
+            type: string
+            maxLength: 50
+          example: MEMBER
+      responses:
+        '200':
+          description: The requested role.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/roles/{id}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/RoleId'
+    get:
+      tags: [Role Management]
+      summary: List the permissions granted to a role
+      operationId: getRolePermissions
+      responses:
+        '200':
+          description: Permissions currently mapped to the role. Empty array when none.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PermissionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags: [Role Management]
+      summary: Replace the permissions granted to a role
+      description: |
+        Full replacement, not a merge: the role ends up with exactly the permissions listed
+        in `permissionIds`. Send an empty array to revoke everything.
+
+        Publishes an `auth.permission_changed` event on the `auth.events` Kafka topic.
+        Already-issued JWTs keep their embedded permissions until they expire.
+      operationId: setRolePermissions
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRolePermissionsRequest'
+      responses:
+        '200':
+          description: Permissions replaced.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetPermissionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/SystemRoleImmutable'
+        '404':
+          description: |
+            The role does not exist (`ROLE_NOT_FOUND`), or one of the supplied
+            permission IDs does not exist (`PERMISSION_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/permissions:
+    get:
+      tags: [Permission Management]
+      summary: List all permissions
+      operationId: getAllPermissions
+      responses:
+        '200':
+          description: The full permission catalogue. Empty array when none exist.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PermissionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Permission Management]
+      summary: Create a new permission
+      description: |
+        Creates a `resource:action` grant. The pair is unique — creating a permission that
+        already exists is rejected with `PERMISSION_ALREADY_EXISTS`.
+      operationId: createPermission
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePermissionRequest'
+      responses:
+        '201':
+          description: Permission created.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: That `resource:action` pair already exists (`PERMISSION_ALREADY_EXISTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 409
+                error: Conflict
+                code: PERMISSION_ALREADY_EXISTS
+                message: Permission with resource 'booking' and action 'create' already exists
+                path: /auth/permissions
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/permissions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PermissionId'
+    get:
+      tags: [Permission Management]
+      summary: Get a permission by ID
+      operationId: getPermissionById
+      responses:
+        '200':
+          description: The requested permission.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PermissionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags: [Permission Management]
+      summary: Update a permission
+      description: |
+        Replaces the resource, action and description. Renaming onto an existing
+        `resource:action` pair is rejected with `PERMISSION_ALREADY_EXISTS`.
+      operationId: updatePermission
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePermissionRequest'
+      responses:
+        '200':
+          description: Permission updated.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PermissionNotFound'
+        '409':
+          description: Another permission already uses that `resource:action` pair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Permission Management]
+      summary: Delete a permission
+      description: Deletes the permission and removes it from every role that carries it.
+      operationId: deletePermission
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Permission deleted. No body.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PermissionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/permissions/resource/{resource}/action/{action}:
+    get:
+      tags: [Permission Management]
+      summary: Get a permission by resource and action
+      description: Lookup by the natural key, e.g. `booking` + `create` for `booking:create`.
+      operationId: getPermissionByResourceAndAction
+      parameters:
+        - name: resource
+          in: path
+          required: true
+          description: Resource segment of the permission.
+          schema:
+            type: string
+            maxLength: 50
+          example: booking
+        - name: action
+          in: path
+          required: true
+          description: Action segment of the permission.
+          schema:
+            type: string
+            maxLength: 50
+          example: create
+      responses:
+        '200':
+          description: The requested permission.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PermissionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/users/{userId}/roles:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [User Role Management]
+      summary: List the roles assigned to a user
+      description: |
+        Returns the raw assignments. An unknown user is not an error — it yields an
+        empty array, since this service does not own the user directory.
+      operationId: getUserRoles
+      responses:
+        '200':
+          description: Assignments held by the user. Empty array when none.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserRoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [User Role Management]
+      summary: Assign a role to a user
+      description: |
+        Idempotency is not implied: re-assigning a role the user already holds is
+        rejected with `USER_ROLE_ALREADY_ASSIGNED`.
+
+        Publishes an `auth.role_assigned` event on the `auth.events` Kafka topic. The
+        user's next login picks up the new permissions; JWTs already issued do not.
+      operationId: assignRole
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleRequest'
+      responses:
+        '201':
+          description: Role assigned.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignRoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RoleNotFound'
+        '409':
+          description: The user already holds that role (`USER_ROLE_ALREADY_ASSIGNED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 409
+                error: Conflict
+                code: USER_ROLE_ALREADY_ASSIGNED
+                message: User 550e8400-e29b-41d4-a716-446655440000 already has role 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+                path: /auth/users/550e8400-e29b-41d4-a716-446655440000/roles
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/users/{userId}/roles/{roleId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/RoleIdPath'
+    delete:
+      tags: [User Role Management]
+      summary: Revoke a role from a user
+      description: |
+        Removes the assignment and publishes an `auth.role_revoked` event on the
+        `auth.events` Kafka topic. Revocation does **not** invalidate JWTs that already
+        embed the permission — those expire on their own (15 minutes) or must be
+        blacklisted through `ms-ga-identifier`.
+      operationId: revokeRole
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Role revoked.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: The user does not hold that role (`USER_ROLE_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 404
+                error: Not Found
+                code: USER_ROLE_NOT_FOUND
+                message: User 550e8400-e29b-41d4-a716-446655440000 is not assigned role 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+                path: /auth/users/550e8400-e29b-41d4-a716-446655440000/roles/7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/users/{userId}/roles/{roleId}/check:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/RoleIdPath'
+    get:
+      tags: [User Role Management]
+      summary: Check whether a user holds a role
+      description: Returns a bare boolean. A missing user or role yields `false`, not a 404.
+      operationId: hasRole
+      responses:
+        '200':
+          description: '`true` when the assignment exists, otherwise `false`.'
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: boolean
+                example: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/users/{userId}/roles/with-permissions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [User Role Management]
+      summary: Resolve a user's roles and effective permissions
+      description: |
+        **Internal endpoint.** Called by `ms-ga-identifier` during login to build the fat
+        JWT. Returns role names plus the de-duplicated union of the `resource:action`
+        strings those roles grant.
+
+        An unknown user yields empty arrays rather than a 404 — this service does not own
+        the user directory, and a user with no assignments is a valid state.
+      operationId: getUserRolesWithPermissions
+      responses:
+        '200':
+          description: The user's roles and their flattened permission set.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolesWithPermissionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT issued by `ms-ga-identifier`. Behind the Kong gateway the signature, expiry
+        and JTI blacklist are validated before the request reaches this service.
+
+  headers:
+    X-Correlation-Id:
+      description: |
+        Correlation identifier for this request. Echoed from the inbound `X-Correlation-Id`
+        header when present, otherwise generated. Matches the `traceId` of error bodies.
+      schema:
+        type: string
+      example: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Opaque, caller-generated key (1–255 printable ASCII characters, no whitespace —
+        a UUID is the usual choice) that makes this request safe to retry.
+
+        The first request with a given key executes normally and its response is stored
+        for 24 hours. A retry carrying the same key and the same body replays that stored
+        response verbatim, with `Idempotency-Replayed: true`, without re-running the work.
+
+        Two cases are refused rather than guessed at:
+
+        * reusing a key with a *different* method, path or body → `409 IDEMPOTENCY_KEY_REUSED`
+        * retrying while the first attempt is still running → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+
+        Responses of 500 or above are not recorded, so retrying after one genuinely re-runs
+        the request.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+      example: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+    RoleId:
+      name: id
+      in: path
+      required: true
+      description: Role identifier (UUID).
+      schema:
+        type: string
+        format: uuid
+      example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+    PermissionId:
+      name: id
+      in: path
+      required: true
+      description: Permission identifier (UUID).
+      schema:
+        type: string
+        format: uuid
+      example: b41d5c88-7b3a-4a0e-9f27-3c8e1d6a5f42
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: User identifier (UUID) as issued by `ms-ga-identifier`.
+      schema:
+        type: string
+        format: uuid
+      example: 550e8400-e29b-41d4-a716-446655440000
+    RoleIdPath:
+      name: roleId
+      in: path
+      required: true
+      description: Role identifier (UUID).
+      schema:
+        type: string
+        format: uuid
+      example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+
+  responses:
+    BadRequest:
+      description: |
+        The request could not be processed as sent. Possible codes:
+
+        | Code | Cause |
+        |------|-------|
+        | `VALIDATION_FAILED` | A body field failed a constraint. See `fieldErrors`. |
+        | `MALFORMED_REQUEST` | Unparseable JSON, or a path/query value of the wrong type (e.g. a non-UUID id). |
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validationFailed:
+              summary: Body field failed validation
+              value:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 400
+                error: Bad Request
+                code: VALIDATION_FAILED
+                message: Request validation failed for 1 field
+                path: /auth/roles
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+                fieldErrors:
+                  - field: name
+                    rejectedValue: ''
+                    message: must not be blank
+            malformedRequest:
+              summary: Path variable is not a UUID
+              value:
+                timestamp: '2026-07-26T09:15:22.481Z'
+                status: 400
+                error: Bad Request
+                code: MALFORMED_REQUEST
+                message: "Parameter 'id' must be a valid UUID"
+                path: /auth/roles/not-a-uuid
+                traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    Unauthorized:
+      description: Missing, malformed or expired bearer token (`UNAUTHENTICATED`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 401
+            error: Unauthorized
+            code: UNAUTHENTICATED
+            message: Authentication is required to access this resource
+            path: /auth/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    Forbidden:
+      description: The caller is authenticated but lacks the required permission (`ACCESS_DENIED`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 403
+            error: Forbidden
+            code: ACCESS_DENIED
+            message: Access is denied
+            path: /auth/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    SystemRoleImmutable:
+      description: |
+        The operation targets a system role, which is read-only through this API
+        (`SYSTEM_ROLE_IMMUTABLE`), or the caller lacks the required permission
+        (`ACCESS_DENIED`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 403
+            error: Forbidden
+            code: SYSTEM_ROLE_IMMUTABLE
+            message: System role 'MEMBER' cannot be deleted
+            path: /auth/roles/7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    RoleNotFound:
+      description: No role exists with the supplied identifier (`ROLE_NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 404
+            error: Not Found
+            code: ROLE_NOT_FOUND
+            message: 'Role not found with id: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11'
+            path: /auth/roles/7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    PermissionNotFound:
+      description: No permission exists with the supplied identifier (`PERMISSION_NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 404
+            error: Not Found
+            code: PERMISSION_NOT_FOUND
+            message: 'Permission not found with id: b41d5c88-7b3a-4a0e-9f27-3c8e1d6a5f42'
+            path: /auth/permissions/b41d5c88-7b3a-4a0e-9f27-3c8e1d6a5f42
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    UnsupportedMediaType:
+      description: The request body was not sent as `application/json` (`UNSUPPORTED_MEDIA_TYPE`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 415
+            error: Unsupported Media Type
+            code: UNSUPPORTED_MEDIA_TYPE
+            message: "Content type 'text/plain' is not supported. Supported: application/json"
+            path: /auth/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    IdempotencyConflict:
+      description: |
+        The `Idempotency-Key` could not be honoured. `IDEMPOTENCY_KEY_REUSED` means the key
+        was already used for a different request; pick a new one. `IDEMPOTENT_REQUEST_IN_PROGRESS`
+        means the first attempt is still running; retry the identical request shortly.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 409
+            error: Conflict
+            code: IDEMPOTENT_REQUEST_IN_PROGRESS
+            message: An earlier request with this Idempotency-Key is still in progress; retry shortly
+            path: /auth/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    EventPublishFailed:
+      description: |
+        The change was rolled back because the event announcing it could not be handed to
+        Kafka (`EVENT_PUBLISH_FAILED`). Nothing was persisted. Retry the identical request —
+        with an `Idempotency-Key` if the broker recovers between your attempts.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 503
+            error: Service Unavailable
+            code: EVENT_PUBLISH_FAILED
+            message: Could not publish event auth.role_assigned; the change was rolled back
+            path: /auth/users/550e8400-e29b-41d4-a716-446655440000/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+    InternalServerError:
+      description: |
+        An unhandled failure. The `message` is deliberately generic — the cause is logged
+        against the `traceId`, which is what to quote when reporting the problem.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: '2026-07-26T09:15:22.481Z'
+            status: 500
+            error: Internal Server Error
+            code: INTERNAL_ERROR
+            message: An unexpected error occurred. Quote the traceId when reporting this.
+            path: /auth/roles
+            traceId: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+
+  schemas:
+
+    ErrorResponse:
+      type: object
+      description: |
+        The single error envelope used by every non-2xx response in this service.
+      required:
+        - timestamp
+        - status
+        - error
+        - code
+        - message
+        - path
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: When the failure was rendered, in UTC.
+          example: '2026-07-26T09:15:22.481Z'
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code, repeated here so the body is self-contained in logs.
+          example: 404
+        error:
+          type: string
+          description: HTTP reason phrase for `status`.
+          example: Not Found
+        code:
+          type: string
+          description: |
+            Stable, machine-readable cause. Branch on this rather than on `message` or
+            `status`. New values may be added over time, so treat unknown values as a
+            generic failure of the corresponding status class.
+          enum:
+            - ROLE_NOT_FOUND
+            - ROLE_ALREADY_EXISTS
+            - SYSTEM_ROLE_IMMUTABLE
+            - PERMISSION_NOT_FOUND
+            - PERMISSION_ALREADY_EXISTS
+            - USER_ROLE_NOT_FOUND
+            - USER_ROLE_ALREADY_ASSIGNED
+            - VALIDATION_FAILED
+            - MALFORMED_REQUEST
+            - ENDPOINT_NOT_FOUND
+            - METHOD_NOT_ALLOWED
+            - UNSUPPORTED_MEDIA_TYPE
+            - IDEMPOTENCY_KEY_REUSED
+            - IDEMPOTENT_REQUEST_IN_PROGRESS
+            - UNAUTHENTICATED
+            - ACCESS_DENIED
+            - DATA_INTEGRITY_VIOLATION
+            - EVENT_PUBLISH_FAILED
+            - INTERNAL_ERROR
+          example: ROLE_NOT_FOUND
+        message:
+          type: string
+          description: |
+            Human-readable explanation, safe to log but not to parse. For `INTERNAL_ERROR`
+            this is intentionally generic so internals are not leaked to callers.
+          example: 'Role not found with id: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11'
+        path:
+          type: string
+          description: Request path that produced the error.
+          example: /auth/roles/7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+        traceId:
+          type: string
+          description: |
+            Correlation id for this request, matching the `X-Correlation-Id` response
+            header and the service logs.
+          example: 4f1c9b02-6f8e-4f2f-9d0c-2a7d5f9c1b3e
+        fieldErrors:
+          type: array
+          description: |
+            Present only for `VALIDATION_FAILED`. One entry per rejected field, so a client
+            can attach messages to the right form control instead of parsing `message`.
+          items:
+            $ref: '#/components/schemas/ValidationError'
+
+    ValidationError:
+      type: object
+      description: A single field-level constraint violation.
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+          description: Dotted path to the offending field within the request body.
+          example: name
+        rejectedValue:
+          type: string
+          description: |
+            The submitted value rendered as a string, or `null` when absent. Truncated for
+            long values and omitted entirely for fields that may carry secrets.
+          example: ''
+        message:
+          type: string
+          description: Why the value was rejected.
+          example: must not be blank
+
+    RoleResponse:
+      type: object
+      description: A role definition.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Server-assigned identifier.
+          example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+        name:
+          type: string
+          description: Unique, case-sensitive role name.
+          example: MEMBER
+        description:
+          type: string
+          description: Free-text explanation of what the role is for.
+          example: Standard gym member
+        isSystem:
+          type: boolean
+          description: |
+            `true` for platform-seeded roles, which cannot be updated, deleted, or have
+            their permissions changed through this API.
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-01-04T08:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2026-01-04T08:00:00Z'
+
+    CreateRoleRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Unique role name. Conventionally UPPER_SNAKE_CASE.
+          example: FRONT_DESK
+        description:
+          type: string
+          maxLength: 255
+          description: Free-text explanation of what the role is for.
+          example: Reception staff who can check members in
+        system:
+          type: boolean
+          default: false
+          description: |
+            Mark the role as platform-managed. Irreversible through this API: system roles
+            reject every later mutation with `SYSTEM_ROLE_IMMUTABLE`.
+          example: false
+
+    UpdateRoleRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: New unique role name.
+          example: FRONT_DESK
+        description:
+          type: string
+          maxLength: 255
+          description: New description. Send an empty string to clear it.
+          example: Reception staff who can check members in and out
+
+    PermissionResponse:
+      type: object
+      description: 'A single `resource:action` grant.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: b41d5c88-7b3a-4a0e-9f27-3c8e1d6a5f42
+        resource:
+          type: string
+          description: The thing being acted on.
+          example: booking
+        action:
+          type: string
+          description: What may be done to it.
+          example: create
+        description:
+          type: string
+          example: Create a booking
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-01-04T08:00:00Z'
+
+    CreatePermissionRequest:
+      type: object
+      required:
+        - resource
+        - action
+      properties:
+        resource:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 'Resource segment, lower_snake_case. Combined as `resource:action`.'
+          example: booking
+        action:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 'Action segment, lower_snake_case. Use an `_own`/`_any` suffix for scope.'
+          example: cancel_own
+        description:
+          type: string
+          maxLength: 255
+          example: Cancel a booking the caller owns
+
+    UpdatePermissionRequest:
+      type: object
+      required:
+        - resource
+        - action
+      properties:
+        resource:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: booking
+        action:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: cancel_any
+        description:
+          type: string
+          maxLength: 255
+          example: Cancel any booking
+
+    SetRolePermissionsRequest:
+      type: object
+      required:
+        - permissionIds
+      properties:
+        permissionIds:
+          type: array
+          description: |
+            The complete set of permissions the role should carry after the call.
+            Duplicates are collapsed; an empty array revokes everything.
+          items:
+            type: string
+            format: uuid
+          example:
+            - b41d5c88-7b3a-4a0e-9f27-3c8e1d6a5f42
+            - 2c9a4f61-88de-4a13-b0f5-6e7d3c1a9b04
+
+    SetPermissionsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Permissions updated.
+        permissionCount:
+          type: integer
+          format: int32
+          description: Number of permissions the role carries after the call.
+          example: 2
+
+    UserRoleResponse:
+      type: object
+      description: One user-to-role assignment.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 9b6e2f14-3a5c-4d8b-90e1-5f7a2c4b6d80
+        userId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        roleId:
+          type: string
+          format: uuid
+          example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+        roleName:
+          type: string
+          example: MEMBER
+        assignedBy:
+          type: string
+          format: uuid
+          description: User who performed the assignment. `null` for seeded assignments.
+          example: 1f0c7d22-4b6e-4a91-8c3d-0e5f2a7b9c14
+        assignedAt:
+          type: string
+          format: date-time
+          example: '2026-01-04T08:00:00Z'
+
+    AssignRoleRequest:
+      type: object
+      required:
+        - roleId
+      properties:
+        roleId:
+          type: string
+          format: uuid
+          description: Role to assign. Must already exist.
+          example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+        assignedBy:
+          type: string
+          format: uuid
+          description: Administrator performing the assignment. Recorded for audit; optional.
+          example: 1f0c7d22-4b6e-4a91-8c3d-0e5f2a7b9c14
+
+    AssignRoleResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Role assigned.
+        userId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        roleId:
+          type: string
+          format: uuid
+          example: 7d3f1a90-1c2b-4e55-8f31-9a0b6c4d2e11
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Role removed.
+
+    RolesWithPermissionsResponse:
+      type: object
+      description: The payload `ms-ga-identifier` embeds into the JWT at login.
+      properties:
+        userId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        roles:
+          type: array
+          description: Names of the roles the user holds.
+          items:
+            type: string
+          example:
+            - MEMBER
+        permissions:
+          type: array
+          description: |
+            De-duplicated union of the `resource:action` strings granted by those roles,
+            in role-assignment order.
+          items:
+            type: string
+          example:
+            - booking:read
+            - booking:create
+            - booking:cancel_own
