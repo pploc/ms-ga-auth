@@ -287,17 +287,37 @@ trade-off it implies.
 ### Kubernetes
 
 ```bash
-kubectl apply -k deploy/k8s
+helm upgrade --install ms-ga-auth deploy/helm/ms-ga-auth -n gymapi --create-namespace
+helm diff upgrade ms-ga-auth deploy/helm/ms-ga-auth     # review first, with helm-diff
+helm rollback ms-ga-auth                                 # if it goes wrong
 ```
 
-| File | Contents |
-|---|---|
-| `deployment.yaml` | ServiceAccount + Deployment: probes, security context, graceful shutdown |
-| `service.yaml` | ClusterIP |
-| `configmap.yaml` | Every `${...}` env var the app reads |
-| `secret.example.yaml` | Template only — not in the kustomization |
-| `gateway.yaml` | Gateway API `HTTPRoute` + `KongPlugin` CRDs |
-| `resilience.yaml` | PodDisruptionBudget, HPA, NetworkPolicy |
+```
+deploy/helm/ms-ga-auth/
+├── Chart.yaml
+├── values.yaml          ← everything specific to this service
+└── templates/           ← generic; mentions this service nowhere
+    ├── _helpers.tpl  configmap.yaml  deployment.yaml  service.yaml
+    ├── resilience.yaml (PDB + HPA)   networkpolicy.yaml  gateway.yaml
+    └── NOTES.txt
+```
+
+**The split is deliberate.** Six sibling services need this same shape, so `templates/` is driven
+entirely by values — the config, the network peers, the gateway plugins, even the authorization
+Lua all live in `values.yaml`, and the helper defines are prefixed `gymapi.` rather than
+`ms-ga-auth.`. When the second service needs it, `templates/` moves to a platform chart published
+to an OCI registry, each service keeps its `values.yaml`, and this repo drops from 12 files to 1.
+Doing that now, with one service, would be guessing at which parts actually vary.
+
+Two things the chart does better than the kustomize manifests it replaces:
+
+- **`checksum/config` is computed**, so a config change genuinely rolls the pods. Under kustomize
+  it was a placeholder CI had to fill in.
+- **`gateway.enabled: false`** on a cluster without Gateway API and Kong CRDs, instead of telling
+  you to comment a line out of `kustomization.yaml`.
+
+Secrets are never templated. `deploy/secret.example.yaml` documents the expected keys; supply the
+Secret from External Secrets, Sealed Secrets, or whatever the platform runs.
 
 **The login endpoint has no route, on purpose.** `ms-ga-identifier` calls
 `/auth/users/{id}/roles/with-permissions` while minting a token, so it cannot require a JWT. In

@@ -1,0 +1,36 @@
+apiVersion: v2
+name: ms-ga-auth
+description: Authorization management for the GymAPI platform — RBAC roles, permissions and user assignments.
+type: application
+
+# Chart version: bumped when the templates change.
+version: 0.1.0
+# Application version: the image tag deployed by default. Keep in step with the Gradle project
+# version, and override per environment rather than editing this.
+appVersion: "0.0.1-SNAPSHOT"
+
+keywords:
+  - rbac
+  - authorization
+  - gymapi
+
+maintainers:
+  - name: GymAPI Platform Team
+    email: platform@gymapi.local
+
+# INTENDED TO BE LIFTED
+#
+# Nothing in templates/ mentions this service. Every service-specific value — config, network
+# peers, gateway plugins, even the authorization Lua — lives in values.yaml, and the helper
+# defines are prefixed `gymapi.` rather than `ms-ga-auth.` so they survive a rename.
+#
+# When the second or third service needs the same shape, move templates/ to a platform chart
+# (`gymapi-microservice`), publish it to the OCI registry, and reduce each service repo to its
+# values.yaml plus a dependency:
+#
+#   dependencies:
+#     - name: gymapi-microservice
+#       version: 1.x
+#       repository: oci://ghcr.io/gymapi/charts
+#
+# Doing that now, with one service, would be guessing at which parts actually vary.

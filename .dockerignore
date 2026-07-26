@@ -14,7 +14,8 @@ build
 *.iws
 *.ipr
 
-# Local tooling that has no business in an image
+# Local tooling and deployment config that has no business in an image
 docker-compose*.yml
+deploy
 *.log
 .DS_Store

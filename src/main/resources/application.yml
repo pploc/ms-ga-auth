@@ -57,7 +57,7 @@ spring:
   lifecycle:
     # Must exceed gymapi.events.publish-timeout (25s), or graceful shutdown gives up while a
     # request is still waiting for its Kafka ack. The pod's terminationGracePeriodSeconds must in
-    # turn exceed this — see deploy/k8s/deployment.yaml.
+    # turn exceed this — see terminationGracePeriodSeconds in deploy/helm/ms-ga-auth/values.yaml.
     timeout-per-shutdown-phase: 30s
   threads:
     # Request handling now blocks on the Kafka ack before responding. On virtual threads that wait

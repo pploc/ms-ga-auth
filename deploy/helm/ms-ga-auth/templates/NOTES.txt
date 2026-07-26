@@ -1,0 +1,38 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} released as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+Rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "gymapi.fullname" . }}
+
+First boot runs the Flyway migrations, so it is slower than a restart. The startup probe allows
+{{ mul .Values.probes.startup.periodSeconds .Values.probes.startup.failureThreshold }}s for that
+before liveness begins.
+
+{{- if .Values.gateway.enabled }}
+
+Reachable through the gateway at:
+{{- range $host := .Values.gateway.hostnames }}
+{{- range $.Values.gateway.paths }}
+  https://{{ $host }}{{ .value }}
+{{- end }}
+{{- end }}
+
+/auth requires a JWT carrying role:manage. The login-support endpoint
+(/auth/users/{id}/roles/with-permissions) is deliberately NOT routed — ms-ga-identifier reaches
+the Service directly, and the NetworkPolicy controls who may.
+{{- else }}
+
+Gateway resources are disabled. The service is reachable in-cluster only:
+  http://{{ include "gymapi.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+{{- if not (has "ms-ga-auth-secrets" .Values.envFromSecrets) }}
+
+WARNING: envFromSecrets does not include ms-ga-auth-secrets.
+{{- end }}
+
+Check the Secret exists before trusting this release:
+  kubectl -n {{ .Release.Namespace }} get secret {{ join " " .Values.envFromSecrets }}
+
+application.yml carries a working default for JWT_SECRET, so a deployment missing it starts
+successfully with a publicly known signing key rather than failing. Treat a missing Secret as an
+incident, not a misconfiguration.

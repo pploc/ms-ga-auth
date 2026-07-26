@@ -1,0 +1,64 @@
+{{- if .Values.gateway.enabled }}
+{{/*
+Gateway routing via Gateway API + Kong Ingress Controller.
+
+Gating the whole file on a value is the concrete win over the kustomize version, where a cluster
+without the Gateway API and Kong CRDs needed a line commented out of kustomization.yaml.
+
+WHAT IS DELIBERATELY ABSENT
+  No route for /auth/users/{id}/roles/with-permissions. ms-ga-identifier calls it while minting a
+  token, so it cannot require a JWT. Rather than allowlisting it, it simply is not published:
+  identifier reaches the ClusterIP Service directly and the NetworkPolicy controls who may. An
+  endpoint with no route cannot be reached from outside, which beats any allowlist.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "gymapi.fullname" . }}
+  labels:
+    {{- include "gymapi.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.gateway.plugins }}
+    {{/* Plugin execution order is Kong's own priority, not the order listed here. */}}
+    konghq.com/plugins: {{ range $i, $p := .Values.gateway.plugins }}{{ if $i }},{{ end }}{{ include "gymapi.fullname" $ }}-{{ $p.name }}{{ end }}
+    {{- end }}
+    konghq.com/strip-path: "false"
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name }}
+      namespace: {{ .Values.gateway.parentRef.namespace }}
+      sectionName: {{ .Values.gateway.parentRef.sectionName }}
+  hostnames:
+    {{- toYaml .Values.gateway.hostnames | nindent 4 }}
+  rules:
+    - matches:
+        {{- range .Values.gateway.paths }}
+        - path:
+            type: {{ .type }}
+            value: {{ .value }}
+        {{- end }}
+      backendRefs:
+        - name: {{ include "gymapi.fullname" . }}
+          port: {{ .Values.service.port }}
+      timeouts:
+        {{/*
+        Must exceed the Kafka publish timeout: a mutating call blocks on the broker ack before
+        responding, and cutting in below that kills it mid-decision.
+        */}}
+        request: {{ .Values.gateway.requestTimeout }}
+
+{{- range .Values.gateway.plugins }}
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ include "gymapi.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "gymapi.labels" $ | nindent 4 }}
+plugin: {{ .plugin }}
+{{- with .config }}
+config:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
