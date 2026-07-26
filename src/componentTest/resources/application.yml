@@ -1,0 +1,56 @@
+# Component tests boot the real application context. Only the two things a component test cannot
+# own are swapped out: Postgres becomes H2, and the Kafka client is mocked (see ComponentTestBase).
+# Everything else — the security chain, the filters, the exception advice, JPA — is the production
+# wiring.
+spring:
+  # No broker to talk to; KafkaTemplate is supplied as a mock instead. Without this exclusion the
+  # admin client would spend its whole timeout trying to create topics during every context load.
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:componenttest;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      # The Flyway migrations are Postgres-specific (gen_random_uuid, TIMESTAMPTZ), so the schema
+      # here comes from the entity mappings. Migrations still need verifying against a real
+      # Postgres — Testcontainers would be the way to close that gap.
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  jackson:
+    default-property-inclusion: non_null
+  mvc:
+    throw-exception-if-no-handler-found: true
+  threads:
+    virtual:
+      enabled: false
+
+gymapi:
+  events:
+    topic: auth.events.test
+    # Short, so the broker-failure test does not spend 25 seconds waiting for an ack.
+    publish-timeout: 2s
+    # KafkaTemplate is mocked here, so nothing is actually serialized; the mock:// scheme keeps the
+    # producer factory constructible without a registry. Real serialization is covered by
+    # AuthEventSchemaTest.
+    schema-registry-url: mock://componenttest
+  idempotency:
+    retention: 24h
+    in-progress-timeout: 60s
+    # Far enough out that the scheduled purge never fires mid-test.
+    purge-interval: 24h
+
+jwt:
+  secret: componenttestsecretkeythatisverylongandsecureenoughforHS256
+
+logging:
+  level:
+    root: WARN
+    com.gymapi.auth: INFO

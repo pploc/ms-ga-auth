@@ -1,0 +1,20 @@
+# Keeps the build context small and stops host build output leaking into the image, where it
+# would shadow what the builder stage produces.
+.git
+.gradle
+build
+
+# IDE and editor state
+.idea
+.vscode
+.cursor
+.junie
+.claude
+*.iml
+*.iws
+*.ipr
+
+# Local tooling that has no business in an image
+docker-compose*.yml
+*.log
+.DS_Store

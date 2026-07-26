@@ -7,9 +7,12 @@ services:
       - "8082:8082"
     environment:
       - DB_HOST=db
-      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_BROKERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
     depends_on:
       db:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
 
   db:
@@ -44,6 +47,10 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: 29092 for containers on this network, 9092 for the host. Previously only
+      # the advertised addresses were set, so the broker listened on 9092 while telling in-network
+      # clients to use 29092 — nothing inside the compose network could reach it.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -58,6 +65,28 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+
+  # Holds the AuthEvent schema. Producers send a schema id rather than the schema itself, and the
+  # registry refuses a version that would break existing consumers.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    # 8081 is ms-ga-identifier's port on the host, so the registry is published on 8181 instead.
+    # Inside the compose network it is still http://schema-registry:8081.
+    ports:
+      - "8181:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      # Refuse a new version unless consumers written against any earlier version can still read it.
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      - kafka
 
 volumes:
   postgres_data:

@@ -1,23 +1,26 @@
-HELP.md
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+### Gradle ###
+.gradle/
+/build/
+!gradle/wrapper/gradle-wrapper.jar
 
-### STS ###
+### IDE — Eclipse / STS (project is Gradle-only; these are never committed) ###
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
 .sts4-cache
+bin/
 
-### IntelliJ IDEA ###
-.idea
+### IDE — IntelliJ IDEA ###
+.idea/
 *.iws
 *.iml
 *.ipr
+
+### IDE — VS Code ###
+.vscode/
 
 ### NetBeans ###
 /nbproject/private/
@@ -25,24 +28,9 @@ target/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
-.vscode/
-
-### Mac OS ###
+### OS ###
 .DS_Store
-
-### Gradle ###
-.gradle
-/build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### Others ###
 *.log
-bin/
-/src/generated/

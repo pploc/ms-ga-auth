@@ -5,89 +5,84 @@ import com.gymapi.auth.application.port.out.PermissionRepository;
 import com.gymapi.auth.domain.exception.DuplicatePermissionException;
 import com.gymapi.auth.domain.exception.PermissionNotFoundException;
 import com.gymapi.auth.domain.model.Permission;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.UUID;
-
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PermissionService implements PermissionUseCase {
 
-    private static final String PERMISSION_ALREADY_EXISTS = "Permission with resource '%s' and action '%s' already exists";
-    private static final String PERMISSION_NOT_FOUND = "Permission not found with id: %s";
+  private final PermissionRepository permissionRepository;
 
-    private final PermissionRepository permissionRepository;
+  @Override
+  @Transactional
+  public Permission createPermission(String resource, String action, String description) {
+    requireUniquePair(resource, action);
 
-    @Override
-    @Transactional
-    public Permission createPermission(String resource, String action, String description) {
-        if (permissionRepository.existsByResourceAndAction(resource, action)) {
-            throw new DuplicatePermissionException(String.format(PERMISSION_ALREADY_EXISTS, resource, action));
-        }
+    Permission permission =
+        Permission.builder()
+            .resource(resource)
+            .action(action)
+            .description(description)
+            .createdAt(OffsetDateTime.now())
+            .build();
 
-        Permission permission = new Permission(
-                null,
-                resource,
-                action,
-                description,
-                OffsetDateTime.now()
-        );
+    return permissionRepository.save(permission);
+  }
 
-        return permissionRepository.save(permission);
+  @Override
+  @Transactional
+  public Permission updatePermission(UUID id, String resource, String action, String description) {
+    Permission existing = requirePermission(id);
+
+    boolean pairChanged =
+        !existing.resource().equals(resource) || !existing.action().equals(action);
+    if (pairChanged) {
+      requireUniquePair(resource, action);
     }
 
-    @Override
-    @Transactional
-    public Permission updatePermission(UUID id, String resource, String action, String description) {
-        Permission existingPermission = permissionRepository.findById(id)
-                .orElseThrow(() -> new PermissionNotFoundException(String.format(PERMISSION_NOT_FOUND, id)));
+    return permissionRepository.save(
+        existing.toBuilder().resource(resource).action(action).description(description).build());
+  }
 
-        if (!existingPermission.resource().equals(resource) || !existingPermission.action().equals(action)) {
-            if (permissionRepository.existsByResourceAndAction(resource, action)) {
-                throw new DuplicatePermissionException(String.format(PERMISSION_ALREADY_EXISTS, resource, action));
-            }
-        }
+  @Override
+  @Transactional
+  public void deletePermission(UUID id) {
+    requirePermission(id);
+    permissionRepository.deleteById(id);
+  }
 
-        Permission updatedPermission = new Permission(
-                existingPermission.id(),
-                resource,
-                action,
-                description,
-                existingPermission.createdAt()
-        );
+  @Override
+  public Permission getPermissionById(UUID id) {
+    return requirePermission(id);
+  }
 
-        return permissionRepository.save(updatedPermission);
+  @Override
+  public Permission getPermissionByResourceAndAction(String resource, String action) {
+    return permissionRepository
+        .findByResourceAndAction(resource, action)
+        .orElseThrow(() -> PermissionNotFoundException.byResourceAndAction(resource, action));
+  }
+
+  @Override
+  public List<Permission> getAllPermissions() {
+    return permissionRepository.findAll();
+  }
+
+  private Permission requirePermission(UUID id) {
+    return permissionRepository
+        .findById(id)
+        .orElseThrow(() -> PermissionNotFoundException.byId(id));
+  }
+
+  private void requireUniquePair(String resource, String action) {
+    if (permissionRepository.existsByResourceAndAction(resource, action)) {
+      throw DuplicatePermissionException.of(resource, action);
     }
-
-    @Override
-    @Transactional
-    public void deletePermission(UUID id) {
-        if (!permissionRepository.existsByResourceAndAction("", "")) {
-            permissionRepository.findById(id)
-                    .orElseThrow(() -> new PermissionNotFoundException(String.format(PERMISSION_NOT_FOUND, id)));
-        }
-        permissionRepository.deleteById(id);
-    }
-
-    @Override
-    public Permission getPermissionById(UUID id) {
-        return permissionRepository.findById(id)
-                .orElseThrow(() -> new PermissionNotFoundException(String.format(PERMISSION_NOT_FOUND, id)));
-    }
-
-    @Override
-    public Permission getPermissionByResourceAndAction(String resource, String action) {
-        return permissionRepository.findByResourceAndAction(resource, action)
-                .orElseThrow(() -> new PermissionNotFoundException(
-                        "Permission not found with resource: " + resource + " and action: " + action));
-    }
-
-    @Override
-    public List<Permission> getAllPermissions() {
-        return permissionRepository.findAll();
-    }
+  }
 }

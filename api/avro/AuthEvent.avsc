@@ -1,0 +1,94 @@
+{
+  "namespace": "com.gymapi.auth.events",
+  "type": "record",
+  "name": "AuthEvent",
+  "doc": "Envelope for every RBAC domain event published to the auth.events topic. Delivery is at-least-once, so consumers must treat a repeated eventId as a duplicate and skip it.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "UUID unique to this event, stable across redeliveries. Also set as the eventId record header so a consumer can discard a replay without deserializing the body."
+    },
+    {
+      "name": "occurredAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "When the change was committed, UTC."
+    },
+    {
+      "name": "payload",
+      "doc": "Which change happened. Consumers switch on the branch rather than on a type string, so an unhandled event type is a compile error rather than a silent no-op.",
+      "type": [
+        {
+          "type": "record",
+          "name": "RoleAssigned",
+          "doc": "A role was granted to a user. The user's next login picks up the new permissions; JWTs already issued do not.",
+          "fields": [
+            {
+              "name": "userId",
+              "type": "string",
+              "doc": "UUID of the user who gained the role."
+            },
+            {
+              "name": "roleId",
+              "type": "string",
+              "doc": "UUID of the role granted."
+            },
+            {
+              "name": "assignedBy",
+              "type": ["null", "string"],
+              "default": null,
+              "doc": "UUID of the administrator who performed the assignment. Null for seeded assignments."
+            }
+          ]
+        },
+        {
+          "type": "record",
+          "name": "RoleRevoked",
+          "doc": "A role was taken away from a user. Does not invalidate JWTs that already embed the permission.",
+          "fields": [
+            {
+              "name": "userId",
+              "type": "string",
+              "doc": "UUID of the user who lost the role."
+            },
+            {
+              "name": "roleId",
+              "type": "string",
+              "doc": "UUID of the role revoked."
+            }
+          ]
+        },
+        {
+          "type": "record",
+          "name": "PermissionChanged",
+          "doc": "The permission set of a role was replaced. Every user holding the role is affected from their next login.",
+          "fields": [
+            {
+              "name": "roleId",
+              "type": "string",
+              "doc": "UUID of the role whose permissions changed."
+            },
+            {
+              "name": "roleName",
+              "type": "string",
+              "doc": "Name of the role, denormalised so consumers need not call back."
+            },
+            {
+              "name": "changeType",
+              "type": {
+                "type": "enum",
+                "name": "PermissionChangeType",
+                "symbols": ["PERMISSIONS_UPDATED"],
+                "doc": "Kind of change. An enum rather than free text so adding a kind is a deliberate, compatibility-checked schema change."
+              },
+              "doc": "What happened to the role's permissions."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '3.2.3'
     id 'io.spring.dependency-management' version '1.1.4'
     id 'org.openapi.generator' version '7.10.0' apply false
+    id 'com.github.davidmc24.gradle.plugin.avro' version '1.9.1'
     id 'jacoco'
     id 'com.diffplug.spotless' version '6.25.0'
 }
@@ -16,7 +17,7 @@ java {
 
 spotless {
     java {
-        target 'src/main/java/**/*.java', 'src/test/java/**/*.java'
+        target 'src/main/java/**/*.java', 'src/test/java/**/*.java', 'src/componentTest/java/**/*.java'
         googleJavaFormat('1.22.0')
         removeUnusedImports()
         trimTrailingWhitespace()
@@ -24,24 +25,37 @@ spotless {
     }
 }
 
-// Apply the OpenAPI generation script (defines `openApiGenerate` and helper tasks)
+// OpenAPI DTO generation: task wiring lives in gradle/openapi-generate.gradle, which also makes
+// `compileJava` depend on generation.
 apply plugin: 'org.openapi.generator'
-apply from: 'openapi-generate.gradle'
+apply from: 'gradle/openapi-generate.gradle'
 
-// Ensure OpenAPI generation runs before compilation to avoid errors
-tasks.named('compileJava') {
-    dependsOn 'openApiGenerate'
+// startTestEnvironment / stopTestEnvironment and friends, driving docker-compose.dev.yml.
+apply from: 'gradle/local-env.gradle'
+
+// Published contracts live in api/, not in src: they are consumed by other services and are not
+// runtime resources of this one. api/avro holds the event schemas; api/openapi holds the HTTP
+// spec (see gradle/openapi-generate.gradle). Generated Java for both is build output, never
+// committed.
+// Point the generator at api/avro instead of its src/main/avro convention. Set on the task
+// rather than the source set: `sourceSets.main.avro` is not resolvable at configuration time
+// here, and the nested closure form binds to the project-level avro extension instead.
+tasks.named('generateAvroJava') {
+    setSource(files('api/avro'))
 }
 
-// Also ensure `openApiGenerate` runs as part of `build` (redundant but safe)
-tasks.named('build') {
-    dependsOn 'openApiGenerate'
+avro {
+    // Without this, every string field is generated as CharSequence, which quietly poisons
+    // equals() and every assertion downstream.
+    stringType = 'String'
+    fieldVisibility = 'PRIVATE'
+    outputCharacterEncoding = 'UTF-8'
 }
 
 sourceSets {
     main {
         java {
-            srcDirs += 'src/generated/src/main/java'
+            srcDirs += layout.buildDirectory.dir('generated/openapi/src/main/java')
         }
     }
 }
@@ -54,18 +68,43 @@ configurations {
 
 repositories {
     mavenCentral()
+    // kafka-avro-serializer and the Schema Registry client are not published to Maven Central.
+    maven {
+        url 'https://packages.confluent.io/maven/'
+        content {
+            includeGroup 'io.confluent'
+        }
+    }
 }
 
 ext {
     set('mapstructVersion', "1.5.5.Final")
+    set('confluentVersion', "7.6.1")
 }
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    // /actuator/health is what HAProxy and Kong probe. application.yml already configures the
+    // exposure and SecurityConfig already permits the path — the starter itself was missing, so
+    // every probe would have got a 404.
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.apache.avro:avro:1.11.3'
+    // Prefixes each payload with the registered schema id, so a consumer resolves the exact
+    // writer schema instead of guessing, and the registry rejects an incompatible change at
+    // publish time rather than at read time.
+    implementation("io.confluent:kafka-avro-serializer:${confluentVersion}") {
+        // Pulls in a conflicting Kafka client otherwise; spring-kafka manages that version.
+        exclude group: 'org.apache.kafka', module: 'kafka-clients'
+        // And the pre-Jakarta swagger-annotations 2.1.x, which shares a package with springdoc's
+        // swagger-annotations-jakarta and wins on the classpath — silently removing
+        // Schema.RequiredMode from under the generated DTOs. Confluent only needs it to annotate
+        // its own REST API, which we never touch.
+        exclude group: 'io.swagger.core.v3', module: 'swagger-annotations'
+    }
     
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
     
@@ -85,56 +124,129 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
     annotationProcessor 'jakarta.validation:jakarta.validation-api:3.0.2'
 
-    implementation 'javax.annotation:javax.annotation-api:1.3.2'
-    implementation 'org.openapitools:jackson-databind-nullable:0.2.6'
-    implementation 'javax.validation:validation-api:1.1.0.Final'
-
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
+    // MockSchemaRegistryClient: lets the serializer round-trip in tests without a running registry.
+    testImplementation("io.confluent:kafka-schema-registry-client:${confluentVersion}") {
+        exclude group: 'org.apache.kafka', module: 'kafka-clients'
+        exclude group: 'io.swagger.core.v3', module: 'swagger-annotations'
+    }
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'com.h2database:h2'
     testImplementation 'org.mockito:mockito-core:5.14.0'
     testImplementation 'org.mockito:mockito-junit-jupiter:5.14.0'
 }
 
+// Component tests boot the whole application against H2 and drive it over HTTP, so they live in
+// their own source set: they are slower than the unit tests and are meant to be readable as
+// behaviour specs rather than mixed in with them.
+sourceSets {
+    componentTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    componentTestImplementation.extendsFrom testImplementation
+    componentTestCompileOnly.extendsFrom testCompileOnly
+    componentTestRuntimeOnly.extendsFrom testRuntimeOnly
+    componentTestAnnotationProcessor.extendsFrom testAnnotationProcessor
+}
+
+// Reflective access needed by Mockito's inline mock maker and Spring's test context.
+def testJvmArgs = [
+    "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+    "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
+    "--add-opens", "java.base/java.util=ALL-UNNAMED",
+    "--add-opens", "java.base/java.io=ALL-UNNAMED",
+    "--add-opens", "java.base/java.net=ALL-UNNAMED",
+    "--add-opens", "java.base/java.nio=ALL-UNNAMED",
+    "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
+    "--add-opens", "java.base/java.time=ALL-UNNAMED"
+]
+
 tasks.named('test') {
     useJUnitPlatform()
-    jvmArgs = [
-        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-        "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util=ALL-UNNAMED",
-        "--add-opens", "java.base/java.io=ALL-UNNAMED",
-        "--add-opens", "java.base/java.net=ALL-UNNAMED",
-        "--add-opens", "java.base/java.nio=ALL-UNNAMED",
-        "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
-        "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
-        "--add-opens", "java.base/java.time=ALL-UNNAMED"
-    ]
+    jvmArgs = testJvmArgs
     systemProperty("net.bytebuddy.experimental", "true")
-    finalizedBy jacocoTestReport
     testLogging {
-        events "failed", "standardOut", "standardError"
+        events "failed"
         showExceptions true
         exceptionFormat "full"
     }
 }
 
+tasks.register('componentTest', Test) {
+    description = 'Runs the component tests: the whole application, driven over HTTP against H2.'
+    group = 'verification'
+    testClassesDirs = sourceSets.componentTest.output.classesDirs
+    classpath = sourceSets.componentTest.runtimeClasspath
+    useJUnitPlatform()
+    jvmArgs = testJvmArgs
+    systemProperty("net.bytebuddy.experimental", "true")
+    shouldRunAfter tasks.named('test')
+    testLogging {
+        events "failed"
+        showExceptions true
+        exceptionFormat "full"
+    }
+}
+
+def coverageExclusions = [
+    // Generated from the OpenAPI spec; the spec is the thing under review, not this output.
+    'com/gymapi/auth/adapter/in/web/dto/generated/**',
+    // Generated from src/main/avro; likewise the schema is the artefact that matters.
+    'com/gymapi/auth/events/**',
+    // Generated by MapStruct from the mapper interfaces.
+    '**/*MapperImpl.class',
+    // Lombok accessors over JPA columns; exercised end to end but with no logic of their own.
+    'com/gymapi/auth/adapter/out/persistence/entity/**',
+    // Immutable records plus their Lombok builders: the bytecode is almost entirely the
+    // compiler's equals/hashCode/toString. Their few real predicates are still unit tested.
+    'com/gymapi/auth/domain/model/**',
+    // Bean wiring and property records: verified by the context loading at all.
+    'com/gymapi/auth/config/**',
+    'com/gymapi/auth/GaAuthApplication.class'
+]
+
+// Coverage is measured across both suites; neither alone is representative.
+def coverageClassDirs = { files(sourceSets.main.output.classesDirs.collect {
+    fileTree(dir: it, exclude: coverageExclusions)
+}) }
+def coverageExecData = { fileTree(layout.buildDirectory.dir('jacoco')).include('*.exec') }
+
 jacocoTestReport {
-    dependsOn test
+    dependsOn tasks.named('test'), tasks.named('componentTest')
+    executionData coverageExecData()
+    classDirectories.setFrom(coverageClassDirs())
     reports {
         xml.required = true
         html.required = true
     }
-    afterEvaluate {
-        classDirectories.setFrom(files(classDirectories.files.collect {
-            fileTree(dir: it, exclude: [
-                'com/gymapi/auth/adapter/in/web/dto/generated/**',
-                'com/gymapi/auth/adapter/in/web/dto/request/**',
-                'com/gymapi/auth/adapter/in/web/dto/response/**',
-                'com/gymapi/auth/adapter/out/persistence/entity/**',
-                'com/gymapi/auth/config/**',
-                'com/gymapi/auth/GaAuthApplication.class'
-            ])
-        }))
+}
+
+jacocoTestCoverageVerification {
+    dependsOn tasks.named('jacocoTestReport')
+    executionData coverageExecData()
+    classDirectories.setFrom(coverageClassDirs())
+    violationRules {
+        rule {
+            limit {
+                counter = 'INSTRUCTION'
+                minimum = 0.95
+            }
+        }
+        rule {
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.90
+            }
+        }
     }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('componentTest'), tasks.named('jacocoTestCoverageVerification')
 }

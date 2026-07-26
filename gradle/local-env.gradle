@@ -1,0 +1,184 @@
+// Local test environment — applied from build.gradle.
+//
+// Drives docker-compose.dev.yml, which runs the service's dependencies (Postgres, Kafka, Schema
+// Registry, Kafka UI) but not the service itself, so you can restart and debug the app freely
+// while the infrastructure stays up.
+//
+// Typical loop:
+//   ./gradlew startTestEnvironment
+//   ./gradlew bootRun
+//   ... drive it with curl or Postman ...
+//   ./gradlew stopTestEnvironment
+//
+// HAProxy and Kong sit behind a compose profile and are started separately with
+// `./gradlew startGateway`, because most of the time you want to hit the service directly.
+
+def composeFile = 'docker-compose.dev.yml'
+
+/**
+ * Resolves the Compose command once, and fails with something actionable rather than a bare
+ * "Cannot run program" if Docker is missing or not running.
+ */
+def composeCommand = { ->
+    def run = { List<String> command ->
+        try {
+            def process = new ProcessBuilder(command).redirectErrorStream(true).start()
+            process.inputStream.text
+            return process.waitFor() == 0
+        } catch (IOException ignored) {
+            return false
+        }
+    }
+
+    if (run(['docker', 'compose', 'version'])) {
+        return ['docker', 'compose']
+    }
+    // Older installations still ship the standalone v1 binary.
+    if (run(['docker-compose', 'version'])) {
+        return ['docker-compose']
+    }
+    throw new GradleException("""
+        Docker Compose was not found on PATH.
+
+          * Docker Desktop installed? Start it and make sure `docker compose version` works.
+          * Running Gradle from WSL while Docker lives on Windows (or the reverse)? Run this
+            task from the same environment the docker CLI is on.
+          * Compose v1 works, but `--wait` needs Compose v2.17 or newer.
+        """.stripIndent())
+}
+
+def compose = { List<String> arguments ->
+    composeCommand() + ['-f', composeFile] + arguments
+}
+
+tasks.register('startTestEnvironment', Exec) {
+    group = 'test environment'
+    description = 'Starts Postgres, Kafka, Schema Registry and Kafka UI, and waits until they are healthy.'
+
+    // Resolved at execution time so a machine without Docker can still configure the build.
+    doFirst {
+        commandLine compose(['up', '-d', '--wait', '--wait-timeout', '240'])
+        logger.lifecycle('Starting the local test environment; first run pulls several images and may take a few minutes.')
+    }
+
+    doLast {
+        logger.lifecycle("""
+            Test environment is up.
+
+              Postgres         localhost:5434   auth_db / postgres / postgres
+              Kafka            localhost:9092
+              Schema Registry  http://localhost:8181
+              Kafka UI         http://localhost:8100
+
+            These match the defaults in application.yml, so:
+
+              ./gradlew bootRun          the service comes up on http://localhost:8082
+                                         Flyway applies the migrations on startup
+
+            Then check it is alive:
+
+              curl -s http://localhost:8082/auth/roles | jq
+
+            For Postman, import the OpenAPI document rather than hand-writing requests:
+
+              http://localhost:8082/v3/api-docs     (Postman > Import > Link)
+              http://localhost:8082/swagger-ui.html
+
+            There is a copy-pasteable curl walkthrough in the README, under
+            "Local test environment".
+
+            Two things worth knowing while testing:
+
+              * Publishing waits for a broker ack. `docker stop ms-ga-auth-dev-kafka` and mutating
+                calls answer 503 EVENT_PUBLISH_FAILED and roll back — that is the at-least-once
+                behaviour, not a bug.
+              * Only SUPER_ADMIN is seeded with permissions, so
+                GET /auth/users/{id}/roles/with-permissions returns an empty list for the other
+                system roles until you grant some.
+            """.stripIndent())
+    }
+}
+
+tasks.register('startGateway', Exec) {
+    group = 'test environment'
+    description = 'Starts the test environment plus HAProxy and Kong, so requests traverse the real gateway.'
+
+    doFirst {
+        commandLine compose(['--profile', 'gateway', 'up', '-d', '--wait', '--wait-timeout', '240'])
+    }
+
+    doLast {
+        logger.lifecycle("""
+            Gateway is up, in front of the service on http://localhost:8082.
+
+              HAProxy          http://localhost:8000     public entry point
+              HAProxy stats    http://localhost:8404
+              Kong (direct)    http://localhost:8010     bypasses HAProxy, for comparison
+              Kong admin       http://localhost:8011     read-only, localhost only
+
+            Everything under /auth now needs a JWT carrying the role:manage permission, so calls
+            that worked against :8082 will be refused here — that is the point:
+
+              curl -s http://localhost:8000/auth/roles | jq
+              # => 401 UNAUTHENTICATED, in the same envelope the service itself returns
+
+            The login-support endpoint is the exception. It cannot require a JWT — the identity
+            service calls it while minting one — so it takes a service key instead:
+
+              curl -s http://localhost:8000/auth/users/<uuid>/roles/with-permissions \\
+                -H 'X-Service-Key: dev-identifier-service-key' | jq
+
+            Stop everything, gateway included, with ./gradlew stopTestEnvironment.
+            """.stripIndent())
+    }
+}
+
+tasks.register('stopTestEnvironment', Exec) {
+    group = 'test environment'
+    description = 'Stops the local test environment, keeping database and Kafka data.'
+
+    doFirst {
+        commandLine compose(['--profile', 'gateway', 'down'])
+    }
+    doLast {
+        logger.lifecycle('Test environment stopped. Data volumes kept — use resetTestEnvironment to wipe them.')
+    }
+}
+
+tasks.register('resetTestEnvironment', Exec) {
+    group = 'test environment'
+    description = 'Stops the local test environment and deletes its volumes, giving a clean database and empty topics.'
+
+    doFirst {
+        commandLine compose(['--profile', 'gateway', 'down', '--volumes', '--remove-orphans'])
+    }
+    doLast {
+        logger.lifecycle('Test environment removed along with its data. Next start begins from empty.')
+    }
+}
+
+tasks.register('testEnvironmentStatus', Exec) {
+    group = 'test environment'
+    description = 'Shows the state of the local test environment containers.'
+
+    doFirst {
+        commandLine compose(['--profile', 'gateway', 'ps'])
+    }
+}
+
+tasks.register('testEnvironmentLogs', Exec) {
+    group = 'test environment'
+    description = 'Tails the last 200 lines from every container in the local test environment.'
+
+    doFirst {
+        commandLine compose(['--profile', 'gateway', 'logs', '--tail', '200'])
+    }
+}
+
+// bootRun is a local-development task, so match the single-broker stack above: asking for more
+// replicas than there are brokers makes topic creation fail. Override when pointing bootRun at a
+// real multi-broker cluster, e.g. -PkafkaReplicas=3 -PkafkaMinIsr=2.
+tasks.named('bootRun') {
+    environment 'AUTH_TOPIC_REPLICAS', project.findProperty('kafkaReplicas') ?: '1'
+    environment 'AUTH_TOPIC_MIN_ISR', project.findProperty('kafkaMinIsr') ?: '1'
+}

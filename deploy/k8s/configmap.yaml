@@ -1,0 +1,48 @@
+# Non-secret configuration. Every key here is an environment variable the application already
+# reads — see the ${...} defaults in src/main/resources/application.yml. Anything not listed falls
+# back to those defaults, which are tuned for local development, so review this file rather than
+# assuming an unset value is safe.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ms-ga-auth-config
+  labels:
+    app.kubernetes.io/name: ms-ga-auth
+    app.kubernetes.io/part-of: gymapi
+data:
+  # --- Database ------------------------------------------------------------
+  DB_HOST: postgres-auth.data.svc.cluster.local
+  DB_PORT: "5432"
+  DB_NAME: auth_db
+  DB_USER: auth_service
+  # DB_PASS comes from the Secret.
+
+  # --- Kafka ---------------------------------------------------------------
+  KAFKA_BROKERS: kafka-0.kafka.messaging.svc.cluster.local:9092,kafka-1.kafka.messaging.svc.cluster.local:9092,kafka-2.kafka.messaging.svc.cluster.local:9092
+  AUTH_TOPIC: auth.events
+  AUTH_TOPIC_PARTITIONS: "3"
+  # The point of acks=all. Three replicas with two required in sync survives losing one broker
+  # without losing an acknowledged event; the local stack's 1/1 does not.
+  AUTH_TOPIC_REPLICAS: "3"
+  AUTH_TOPIC_MIN_ISR: "2"
+  # Must exceed the producer's delivery.timeout.ms (20s) so its retries run out first, and stay
+  # below spring.lifecycle.timeout-per-shutdown-phase (30s).
+  KAFKA_PUBLISH_TIMEOUT: 25s
+
+  # --- Schema Registry -----------------------------------------------------
+  SCHEMA_REGISTRY_URL: http://schema-registry.messaging.svc.cluster.local:8081
+  # False outside development: schemas are published by CI, so an incompatible change is caught
+  # in review rather than registered by whichever pod happens to deploy first.
+  SCHEMA_AUTO_REGISTER: "false"
+
+  # --- Idempotency ---------------------------------------------------------
+  IDEMPOTENCY_RETENTION: 24h
+  IDEMPOTENCY_IN_PROGRESS_TIMEOUT: 60s
+  IDEMPOTENCY_PURGE_INTERVAL: 1h
+
+  # --- Runtime -------------------------------------------------------------
+  # No SPRING_PROFILES_ACTIVE on purpose. The default profile is the production one:
+  # ddl-auto: validate with Flyway owning the schema. Never set `dev` here — that profile
+  # switches Hibernate to ddl-auto: update, which would let the application alter the schema
+  # behind the migrations.
+  JAVA_TOOL_OPTIONS: "-XX:+ExitOnOutOfMemoryError"

@@ -1,0 +1,174 @@
+# Gateway routing, via Gateway API + Kong Ingress Controller.
+#
+# HOW THIS RELATES TO deploy/kong/kong.yml
+#   Same policy, two mechanisms, because Kong is configured differently in each environment:
+#     * docker-compose  -> DB-less Kong reading the declarative kong.yml
+#     * Kubernetes      -> Kong Ingress Controller assembling config from these resources
+#   KIC merging per-service resources is what kong.yml's "merge of twelve fragments" problem was
+#   asking for, so in a cluster these files are canonical and kong.yml is the local-dev path.
+#   The duplication is real: change one, change the other. If the platform is Kubernetes-only,
+#   delete kong.yml and run KIC locally instead.
+#
+# WHAT IS DELIBERATELY ABSENT
+#   No route for /auth/users/{id}/roles/with-permissions. ms-ga-identifier calls it while minting
+#   a token, so it cannot require a JWT — in docker-compose that meant a service key plus an IP
+#   allowlist. In the cluster it simply is not published: identifier reaches the ClusterIP Service
+#   directly and the NetworkPolicy in resilience.yaml controls who may. An endpoint that is not
+#   routed cannot be reached from outside, which beats any allowlist.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ms-ga-auth-admin
+  labels:
+    app.kubernetes.io/name: ms-ga-auth
+    app.kubernetes.io/part-of: gymapi
+  annotations:
+    # Plugin order is Kong's own priority, not the order listed here.
+    konghq.com/plugins: ms-ga-auth-jwt,ms-ga-auth-rate-limiting,ms-ga-auth-cors,ms-ga-auth-authz
+    konghq.com/strip-path: "false"
+spec:
+  parentRefs:
+    # The platform's shared Gateway. Namespace and name come from the platform repo.
+    - name: gymapi-gateway
+      namespace: gateway
+      sectionName: https
+  hostnames:
+    - api.gymapi.example
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /auth
+      backendRefs:
+        - name: ms-ga-auth
+          port: 8082
+      timeouts:
+        # Must exceed the 25s Kafka publish timeout: a mutating call blocks on the broker ack
+        # before responding, and cutting in below that kills it mid-decision.
+        request: 35s
+---
+# Signature and expiry only. Kong resolves the token's `iss` claim to a consumer credential to
+# find the verification secret; that consumer is platform-owned and lives in the platform repo,
+# because every service behind the gateway verifies the same tokens.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: ms-ga-auth-jwt
+plugin: jwt
+config:
+  key_claim_name: iss
+  claims_to_verify:
+    - exp
+  run_on_preflight: false
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: ms-ga-auth-rate-limiting
+plugin: rate-limiting
+config:
+  minute: 120
+  hour: 2000
+  # Cluster-wide counters, unlike the local policy the docker-compose stack uses: with several
+  # gateway replicas, per-node counters would multiply the effective limit by the replica count.
+  policy: redis
+  redis_host: redis.messaging.svc.cluster.local
+  redis_port: 6379
+  fault_tolerant: true
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: ms-ga-auth-cors
+plugin: cors
+config:
+  # A named origin, not "*". The service's own WebConfig still allows any origin; that should be
+  # narrowed or removed now the gateway owns CORS.
+  origins:
+    - https://admin.gymapi.example
+  methods: [GET, POST, PUT, DELETE, OPTIONS]
+  headers:
+    - Accept
+    - Content-Type
+    - Authorization
+    - Idempotency-Key
+    - X-Correlation-Id
+  exposed_headers:
+    - X-Correlation-Id
+    - Idempotency-Replayed
+  credentials: true
+  max_age: 3600
+---
+# Claim extraction and the role:manage check.
+#
+# Kong OSS verifies a JWT's signature but does not surface its claims, and cannot assert that one
+# of them contains a value. Both happen here.
+#
+# post-function, not pre-function: pre-function has the highest priority in Kong and would run
+# before the jwt plugin, reading claims from a token whose signature had not been checked yet.
+# post-function runs last in the access phase, after jwt has accepted the token.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: ms-ga-auth-authz
+plugin: post-function
+config:
+  access:
+    - |
+      local REQUIRED_PERMISSION = "role:manage"
+
+      -- Never trust inbound X-User-* headers. The service treats them as verified identity, so
+      -- without this anyone who can reach the gateway could assert their own permissions.
+      for _, header in ipairs({ "X-User-Id", "X-User-Email", "X-User-Roles",
+                                "X-User-Permissions", "X-User-Jti" }) do
+        kong.service.request.clear_header(header)
+      end
+
+      -- Mirrors the service's ErrorResponse envelope, so a client sees one error shape whether
+      -- the gateway or the application refused the request.
+      local function deny(status, code, message)
+        return kong.response.exit(status, {
+          timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z"),
+          status    = status,
+          error     = status == 401 and "Unauthorized" or "Forbidden",
+          code      = code,
+          message   = message,
+          path      = kong.request.get_path(),
+          traceId   = kong.request.get_header("X-Correlation-Id"),
+        }, { ["Content-Type"] = "application/json" })
+      end
+
+      local authorization = kong.request.get_header("authorization")
+      local token = authorization and authorization:match("^[Bb]earer%s+(.+)$")
+      if not token then
+        return deny(401, "UNAUTHENTICATED",
+                    "Authentication is required to access this resource")
+      end
+
+      local jwt_parser = require "kong.plugins.jwt.jwt_parser"
+      local jwt, err = jwt_parser:new(token)
+      if err or not jwt then
+        return deny(401, "UNAUTHENTICATED", "Bearer token could not be read")
+      end
+
+      local claims = jwt.claims or {}
+      local permissions = claims.permissions or {}
+
+      local granted = false
+      for _, permission in ipairs(permissions) do
+        if permission == REQUIRED_PERMISSION then
+          granted = true
+          break
+        end
+      end
+      if not granted then
+        return deny(403, "ACCESS_DENIED",
+                    "Managing roles and permissions requires " .. REQUIRED_PERMISSION)
+      end
+
+      kong.service.request.set_header("X-User-Id", claims.sub or "")
+      kong.service.request.set_header("X-User-Email", claims.email or "")
+      kong.service.request.set_header("X-User-Roles", table.concat(claims.roles or {}, ","))
+      kong.service.request.set_header("X-User-Permissions", table.concat(permissions, ","))
+      kong.service.request.set_header("X-User-Jti", claims.jti or "")
