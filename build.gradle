@@ -107,11 +107,12 @@ dependencies {
     }
     
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
-    
-    implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
-    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
-    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
-    
+
+    // JWT verification (security.md §3, ADR-0003): the shared library's JwtVerifier is the one
+    // mandated entry point — RS256 pinned, JWKS + kid selection, iss/aud 'gymapi', 60s skew.
+    // Resolved from the composite build declared in settings.gradle.
+    implementation 'com.gymapi:gymapi-java-common:0.1.0'
+
     implementation "org.mapstruct:mapstruct:${mapstructVersion}"
     
     compileOnly 'org.projectlombok:lombok'
@@ -135,6 +136,11 @@ dependencies {
     testImplementation 'com.h2database:h2'
     testImplementation 'org.mockito:mockito-core:5.14.0'
     testImplementation 'org.mockito:mockito-junit-jupiter:5.14.0'
+    // Verifies the Flyway migrations against a real Postgres 15 — the H2 suites cannot, because
+    // the migrations are Postgres-specific (gen_random_uuid, TIMESTAMPTZ, DO blocks). The test
+    // skips itself when no Docker daemon is available.
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 // Component tests boot the whole application against H2 and drive it over HTTP, so they live in

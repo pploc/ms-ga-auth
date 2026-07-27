@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -42,9 +43,13 @@ import org.springframework.test.web.servlet.MockMvc;
  * <p>Kafka is the exception. A real broker would make these tests slow and flaky, so {@code
  * KafkaTemplate} is mocked and, by default, acknowledges everything. {@link #brokerIsUnreachable()}
  * flips it so the at-least-once rollback path can be exercised.
+ *
+ * <p>JWT verification is real (ADR-0003): {@link ComponentTestSecurity} serves a suite-generated
+ * JWKS and stamps a default SUPER_ADMIN bearer token onto every request.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(ComponentTestSecurity.class)
 public abstract class ComponentTestBase {
 
   @Autowired protected MockMvc mockMvc;

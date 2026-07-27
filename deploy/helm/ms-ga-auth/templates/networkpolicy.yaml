@@ -2,9 +2,10 @@
 {{/*
 Default-deny with an explicit allowlist.
 
-This is load-bearing, not hygiene. The service leaves /auth/** permitAll and trusts whatever
-reaches it, so "who can open a connection" is part of its security model. It is also what replaces
-the service key and IP allowlist the docker-compose gateway needs for the login endpoint.
+This is load-bearing, not hygiene. The service verifies JWTs itself (ADR-0003), but the bootstrap
+route (/auth/users/{id}/roles/with-permissions) is deliberately token-free — it is authenticated
+by service credential and by *this policy* deciding who can open a connection at all. It is also
+what replaces the service key and IP allowlist the docker-compose gateway needs for that endpoint.
 */}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

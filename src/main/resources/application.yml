@@ -67,6 +67,19 @@ spring:
       enabled: true
 
 gymapi:
+  security:
+    jwt:
+      # Independent RS256 verification (security.md §3, ADR-0003): tokens are checked against the
+      # JWKS ms-ga-identifier publishes. No shared signing secret exists in this service — it
+      # holds nothing but cached public keys, so leaking its config mints nothing.
+      jwks-uri: ${JWKS_URI:http://localhost:8081/identity/.well-known/jwks.json}
+      issuer: ms-ga-identifier
+      audience: gymapi
+      clock-skew: 60s
+      jwks-cache-ttl: 10m
+      # Floor between forced refreshes on an unknown kid, so fabricated kids cannot be used to
+      # hammer identifier.
+      jwks-refresh-min-interval: 60s
   events:
     topic: ${AUTH_TOPIC:auth.events}
     partitions: ${AUTH_TOPIC_PARTITIONS:3}
@@ -106,9 +119,6 @@ springdoc:
     operations-sorter: alpha
     tags-sorter: alpha
     display-request-duration: true
-
-jwt:
-  secret: ${JWT_SECRET:supersecretkeythatisverylongandsecureenoughforHS256}
 
 logging:
   level:

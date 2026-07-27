@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"pom.xml\\\\|lombok\")",
+      "Bash(./gradlew dependencies *)",
+      "Bash(./gradlew test *)",
+      "Bash(./gradlew clean *)",
+      "Bash(grep -E \"classpath|project$|settings|factorypath|^bin$\")",
+      "Bash(awk -F'\"' '{s+=$2} END {print \"total tests:\", s}')",
+      "Bash(awk -F'\"' '{s+=$2} END {print \"failures:\", s}')",
+      "Bash(awk -F'\"' '{s+=$2} END {print \"errors:\", s}')",
+      "Bash(./gradlew spotlessCheck)",
+      "Bash(git stash *)",
+      "Skill(update-config)",
+      "PowerShell(Get-Content *)"
+    ]
+  }
+}

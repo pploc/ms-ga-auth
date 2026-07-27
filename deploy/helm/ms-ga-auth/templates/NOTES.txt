@@ -33,6 +33,6 @@ WARNING: envFromSecrets does not include ms-ga-auth-secrets.
 Check the Secret exists before trusting this release:
   kubectl -n {{ .Release.Namespace }} get secret {{ join " " .Values.envFromSecrets }}
 
-application.yml carries a working default for JWT_SECRET, so a deployment missing it starts
-successfully with a publicly known signing key rather than failing. Treat a missing Secret as an
-incident, not a misconfiguration.
+Tokens are verified in-service against ms-ga-identifier's JWKS (ADR-0003); no JWT secret exists
+in this deployment. If JWKS_URI is wrong or identifier is unreachable, every protected request
+answers 401 — check egress to ms-ga-identifier:8081 before suspecting the tokens.

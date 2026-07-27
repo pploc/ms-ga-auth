@@ -33,6 +33,12 @@ spring:
       enabled: false
 
 gymapi:
+  security:
+    jwt:
+      # Required to bind, but never dereferenced: ComponentTestSecurity supplies a JwksFetcher
+      # bean serving the suite's generated test key, so verification is the real RS256 path end
+      # to end without any HTTP fetch.
+      jwks-uri: http://localhost:65535/identity/.well-known/jwks.json
   events:
     topic: auth.events.test
     # Short, so the broker-failure test does not spend 25 seconds waiting for an ack.
@@ -47,8 +53,6 @@ gymapi:
     # Far enough out that the scheduled purge never fires mid-test.
     purge-interval: 24h
 
-jwt:
-  secret: componenttestsecretkeythatisverylongandsecureenoughforHS256
 
 logging:
   level:

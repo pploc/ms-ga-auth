@@ -763,8 +763,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        JWT issued by `ms-ga-identifier`. Behind the Kong gateway the signature, expiry
-        and JTI blacklist are validated before the request reaches this service.
+        JWT issued by `ms-ga-identifier` (RS256, `aud: gymapi`). Behind the Kong gateway the
+        signature, expiry and JTI blacklist are validated before the request reaches this
+        service — and the service then verifies the signature, `iss` and `aud` again itself
+        against identifier's JWKS (ADR-0003), so a request that bypasses the gateway gains
+        nothing.
 
   headers:
     X-Correlation-Id:

@@ -22,8 +22,9 @@
 # ...with section 2 taken from the platform repo rather than from any service. Until that
 # pipeline exists, section 2 is duplicated in each service and will drift.
 #
-# The service itself leaves /auth/** permitAll and trusts what reaches it, so everything that
-# actually protects the RBAC API is in section 1. Treat it as production code.
+# The service also verifies every token itself against ms-ga-identifier's JWKS (ADR-0003), so
+# section 1 is the second of three verification layers, not the only one. Treat it as production
+# code all the same: it is what rejects bad traffic before it reaches a pod.
 _format_version: "3.0"
 _transform: true
 

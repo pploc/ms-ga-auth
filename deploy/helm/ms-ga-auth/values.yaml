@@ -137,6 +137,10 @@ config:
   # review rather than registered by whichever pod deploys first.
   SCHEMA_AUTO_REGISTER: "false"
 
+  # Where ms-ga-identifier publishes its public signing keys. The service verifies every bearer
+  # token against these itself (ADR-0003) — no shared JWT secret exists anywhere in this chart.
+  JWKS_URI: http://ms-ga-identifier:8081/identity/.well-known/jwks.json
+
   IDEMPOTENCY_RETENTION: 24h
   IDEMPOTENCY_IN_PROGRESS_TIMEOUT: 60s
   IDEMPOTENCY_PURGE_INTERVAL: 1h
@@ -165,8 +169,10 @@ autoscaling:
   scaleDownStabilizationSeconds: 300
 
 # --- Network policy ---------------------------------------------------------
-# Default-deny with an explicit allowlist. Load-bearing: the service leaves /auth/** permitAll and
-# trusts whatever reaches it, so who can open a connection is part of its security model.
+# Default-deny with an explicit allowlist. Load-bearing even though the service verifies JWTs
+# itself (ADR-0003): the bootstrap route (/auth/users/{id}/roles/with-permissions) is authenticated
+# by NetworkPolicy plus service credential, not by a token — so who can open a connection is still
+# part of the security model.
 
 networkPolicy:
   enabled: true
@@ -220,6 +226,14 @@ networkPolicy:
               kubernetes.io/metadata.name: messaging
       ports:
         - port: 9092
+        - port: 8081
+    # ms-ga-identifier's JWKS endpoint: RS256 verification needs the public keys (ADR-0003), and
+    # under default-deny an unlisted egress means every token would be rejected as unverifiable.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ms-ga-identifier
+      ports:
         - port: 8081
 
 # --- Gateway ----------------------------------------------------------------

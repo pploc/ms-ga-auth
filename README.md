@@ -113,6 +113,14 @@ cluster with `-PkafkaReplicas=3 -PkafkaMinIsr=2`.
 
 ### Driving it with curl
 
+> **Tokens first (ADR-0003).** The service verifies every bearer token itself against
+> `ms-ga-identifier`'s JWKS (`JWKS_URI`, default
+> `http://localhost:8081/identity/.well-known/jwks.json`), so every protected call below needs
+> `-H "$AUTH"` where `AUTH="Authorization: Bearer <token from a locally running identifier>"`.
+> Without a reachable identifier everything but the bootstrap route
+> (`GET /auth/users/{id}/roles/with-permissions`, token-free by design) answers
+> `401 UNAUTHENTICATED`. The header is omitted from the transcripts below to keep them readable.
+
 Everything below is copy-pasteable. `jq` is only used to pull ids out of responses, and `uuidgen`
 to make one up — Git Bash on Windows has neither, so either run these from WSL or substitute:
 
@@ -244,9 +252,9 @@ deck gateway diff gateway.yml && deck gateway sync gateway.yml
 ...with section 2 taken from the platform repo rather than from any service. Until that pipeline
 exists, section 2 is duplicated per service and will drift.
 
-Everything under `/auth` now needs a JWT carrying `role:manage`, so calls that worked against
-`:8082` are refused — which is the point, since the service itself leaves `/auth/**` `permitAll`
-and trusts whatever reaches it:
+Everything under `/auth` needs a JWT carrying `role:manage` at the gateway — and the service
+verifies the token again itself against `ms-ga-identifier`'s JWKS (ADR-0003), so neither layer
+alone is the whole story:
 
 ```bash
 curl -s http://localhost:8000/auth/roles | jq
@@ -325,10 +333,11 @@ docker-compose that meant a service key plus an IP allowlist. Here it simply is 
 identifier reaches the ClusterIP Service directly, and the NetworkPolicy decides who may. An
 endpoint with no route cannot be reached from outside, which beats any allowlist.
 
-**The NetworkPolicy is load-bearing, not hygiene.** The service leaves `/auth/**` `permitAll` and
-trusts whatever reaches it, so "who can open a connection" is part of its security model. It
-default-denies and allows exactly three ingress sources — the gateway, ms-ga-identifier, and
-Prometheus — plus egress to DNS, Postgres, Kafka and the Schema Registry.
+**The NetworkPolicy is load-bearing, not hygiene.** The service verifies JWTs itself, but the
+bootstrap route (`/auth/users/{id}/roles/with-permissions`) is deliberately token-free, so "who
+can open a connection" is still part of its security model. It default-denies and allows exactly
+three ingress sources — the gateway, ms-ga-identifier, and Prometheus — plus egress to DNS,
+Postgres, Kafka, the Schema Registry and ms-ga-identifier's JWKS endpoint.
 
 **Timeouts and shutdown form a chain**, and every link has to be longer than the one inside it:
 

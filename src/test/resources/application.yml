@@ -17,8 +17,12 @@ spring:
 server:
   port: 8082
 
-jwt:
-  secret: testsecretkeythatisverylongandsecureenoughforHS256
+# Never fetched in the unit suites (no test presents a bearer token there), but JwtProperties
+# requires a value to bind.
+gymapi:
+  security:
+    jwt:
+      jwks-uri: http://localhost:65535/identity/.well-known/jwks.json
 
 kafka:
   bootstrap-servers: localhost:9092

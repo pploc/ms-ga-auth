@@ -9,6 +9,13 @@ services:
       - DB_HOST=db
       - KAFKA_BROKERS=kafka:29092
       - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      # RS256 verification (ADR-0003): where ms-ga-identifier publishes its JWKS. Identifier is
+      # not part of this stack, so the default reaches one running on the host's :8081; until it
+      # is reachable every protected route answers 401 (the bootstrap route keeps working).
+      - JWKS_URI=${JWKS_URI:-http://host.docker.internal:8081/identity/.well-known/jwks.json}
+    extra_hosts:
+      # Docker Desktop provides this name already; the mapping makes it work on Linux too.
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
