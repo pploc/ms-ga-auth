@@ -1,6 +1,6 @@
 rootProject.name = 'ms-ga-auth'
 
-// The shared platform library (delivery.md §10, ADR-0003 §4). Until a Maven registry exists it is
-// consumed as a composite build: Gradle substitutes the com.gymapi:gymapi-java-common coordinate
-// with the sibling checkout automatically.
-includeBuild '../gymapi-java-common'
+// Imported from remote repository https://github.com/pploc/gymapi-java-common
+// (Uncomment includeBuild if developing locally with a sibling checkout)
+// includeBuild '../gymapi-java-common'
+
