@@ -17,6 +17,7 @@ java {
 }
 
 spotless {
+    lineEndings 'GIT_ATTRIBUTES'
     java {
         target 'src/main/java/**/*.java', 'src/test/java/**/*.java', 'src/componentTest/java/**/*.java'
         googleJavaFormat('1.22.0')
