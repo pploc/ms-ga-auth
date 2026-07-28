@@ -8,6 +8,11 @@ COPY build.gradle settings.gradle ./
 COPY api api
 COPY src src
 
+ARG GITHUB_ACTOR
+ARG GITHUB_TOKEN
+ENV GITHUB_ACTOR=${GITHUB_ACTOR}
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
+
 RUN ./gradlew build -x test --no-daemon
 
 FROM eclipse-temurin:23-jre-alpine
