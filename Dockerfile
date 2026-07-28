@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM eclipse-temurin:23-jdk-alpine AS builder
 WORKDIR /app
 COPY gradlew .
 # Carries the wrapper plus the build scripts applied from build.gradle.
@@ -10,7 +10,7 @@ COPY src src
 
 RUN ./gradlew build -x test --no-daemon
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:23-jre-alpine
 WORKDIR /app
 
 # Runs unprivileged. The Kubernetes manifests set runAsNonRoot, which refuses to start a container

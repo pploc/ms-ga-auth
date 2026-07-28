@@ -4,7 +4,7 @@
 
 | Property         | Value                                     |
 | ---------------- | ----------------------------------------- |
-| **Language**     | Java 21                                   |
+| **Language**     | Java 23                                   |
 | **Framework**    | Spring Boot 3.2.3                         |
 | **Database**     | PostgreSQL 15 (Spring Data JPA + Flyway) |
 | **Port**         | 8082                                      |
@@ -18,7 +18,7 @@
 ## Quick Start
 
 ### Prerequisites
-- Java 21+
+- Java 23+
 - Docker & Docker Compose
 
 ### Run with Docker Compose

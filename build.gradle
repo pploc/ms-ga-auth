@@ -12,7 +12,8 @@ group = 'com.gymapi'
 version = '0.0.1-SNAPSHOT'
 
 java {
-    sourceCompatibility = '21'
+    sourceCompatibility = '23'
+    targetCompatibility = '23'
 }
 
 spotless {
