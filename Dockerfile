@@ -13,8 +13,8 @@ RUN chmod +x gradlew
 ARG GITHUB_ACTOR
 
 RUN --mount=type=secret,id=GITHUB_TOKEN \
-    GITHUB_ACTOR=${GITHUB_ACTOR} \
-    GITHUB_TOKEN=$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true) \
+    export GITHUB_ACTOR="${GITHUB_ACTOR}" && \
+    if [ -f /run/secrets/GITHUB_TOKEN ]; then export GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN)"; fi && \
     ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:23-jre-alpine
