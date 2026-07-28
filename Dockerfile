@@ -11,9 +11,11 @@ COPY src src
 RUN chmod +x gradlew
 
 ARG GITHUB_ACTOR
-ARG GITHUB_TOKEN
 
-RUN GITHUB_ACTOR=${GITHUB_ACTOR} GITHUB_TOKEN=${GITHUB_TOKEN} ./gradlew build -x test --no-daemon
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    GITHUB_ACTOR=${GITHUB_ACTOR} \
+    GITHUB_TOKEN=$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true) \
+    ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:23-jre-alpine
 WORKDIR /app
